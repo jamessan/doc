@@ -27,7 +27,6 @@
 ["src/nvim/eval/funcs.c", ["    return NULL;", "  if (name == NULL || *name == NUL)", "    return curbuf;"], "readability/braces"]
 ["src/nvim/eval/funcs.c", ["    return curbuf;", "  if (name[0] == '$' && name[1] == NUL)", "    return lastbuf;"], "readability/braces"]
 ["src/nvim/eval/funcs.c", ["  save_magic = p_magic;", "  p_magic = TRUE;", "  save_cpo = p_cpo;"], "readability/bool"]
-["src/nvim/eval/funcs.c", ["  buf = buflist_findnr(buflist_findpat(name, name + STRLEN(name),", "                                       TRUE, FALSE, curtab_only));", ""], "readability/bool"]
 ["src/nvim/eval/funcs.c", ["", "/*", " * \"byte2line(byte)\" function"], "readability/old_style_comment"]
 ["src/nvim/eval/funcs.c", ["", "/*", " * \"byteidx()\" function"], "readability/old_style_comment"]
 ["src/nvim/eval/funcs.c", ["{", "  byteidx(argvars, rettv, FALSE);", "}"], "readability/bool"]

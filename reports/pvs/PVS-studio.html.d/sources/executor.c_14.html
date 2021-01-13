@@ -940,7 +940,7 @@
 <a name="ln927">  memcpy(lcmd + sizeof(EVALHEADER) - 1, str.data, str.size);</a>
 <a name="ln928">  lcmd[lcmd_len - 1] = ')';</a>
 <a name="ln929">#undef EVALHEADER</a>
-<a name="ln930">  typval_exec_lua(lcmd, lcmd_len, &quot;luaeval()&quot;, arg, 1, true, ret_tv);</a>
+<a name="ln930">  nlua_typval_exec(lcmd, lcmd_len, &quot;luaeval()&quot;, arg, 1, true, ret_tv);</a>
 <a name="ln931"> </a>
 <a name="ln932">  if (lcmd != (char *)IObuff) {</a>
 <a name="ln933">    xfree(lcmd);</a>
@@ -967,18 +967,18 @@
 <a name="ln954">#undef CALLHEADER</a>
 <a name="ln955">#undef CALLSUFFIX</a>
 <a name="ln956"> </a>
-<a name="ln957">  typval_exec_lua(lcmd, lcmd_len, &quot;v:lua&quot;, args, argcount, false, ret_tv);</a>
+<a name="ln957">  nlua_typval_exec(lcmd, lcmd_len, &quot;v:lua&quot;, args, argcount, false, ret_tv);</a>
 <a name="ln958"> </a>
 <a name="ln959">  if (lcmd != (char *)IObuff) {</a>
 <a name="ln960">    xfree(lcmd);</a>
 <a name="ln961">  }</a>
 <a name="ln962">}</a>
 <a name="ln963"> </a>
-<a name="ln964">static void typval_exec_lua(const char *lcmd, size_t lcmd_len, const char *name,</a>
-<a name="ln965">                            typval_T *const args, int argcount, bool special,</a>
-<a name="ln966">                            typval_T *ret_tv)</a>
+<a name="ln964">static void nlua_typval_exec(const char *lcmd, size_t lcmd_len,</a>
+<a name="ln965">                             const char *name, typval_T *const args,</a>
+<a name="ln966">                             int argcount, bool special, typval_T *ret_tv)</a>
 <a name="ln967">{</a>
-<a name="ln968">  if (check_restricted() || check_secure()) {</a>
+<a name="ln968">  if (check_secure()) {</a>
 <a name="ln969">    if (ret_tv) {</a>
 <a name="ln970">      ret_tv-&gt;v_type = VAR_NUMBER;</a>
 <a name="ln971">      ret_tv-&gt;vval.v_number = 0;</a>
@@ -1153,7 +1153,7 @@
 <a name="ln1140">    xfree(code);</a>
 <a name="ln1141">    return;</a>
 <a name="ln1142">  }</a>
-<a name="ln1143">  typval_exec_lua(code, len, &quot;:lua&quot;, NULL, 0, false, NULL);</a>
+<a name="ln1143">  nlua_typval_exec(code, len, &quot;:lua&quot;, NULL, 0, false, NULL);</a>
 <a name="ln1144"> </a>
 <a name="ln1145">  xfree(code);</a>
 <a name="ln1146">}</a>
@@ -1244,326 +1244,339 @@
 <a name="ln1231">void ex_luafile(exarg_T *const eap)</a>
 <a name="ln1232">  FUNC_ATTR_NONNULL_ALL</a>
 <a name="ln1233">{</a>
-<a name="ln1234">  lua_State *const lstate = nlua_enter();</a>
-<a name="ln1235"> </a>
-<a name="ln1236">  if (luaL_loadfile(lstate, (const char *)eap-&gt;arg)) {</a>
-<a name="ln1237">    nlua_error(lstate, _(&quot;E5112: Error while creating lua chunk: %.*s&quot;));</a>
-<a name="ln1238">    return;</a>
-<a name="ln1239">  }</a>
-<a name="ln1240"> </a>
-<a name="ln1241">  if (lua_pcall(lstate, 0, 0, 0)) {</a>
-<a name="ln1242">    nlua_error(lstate, _(&quot;E5113: Error while calling lua chunk: %.*s&quot;));</a>
-<a name="ln1243">    return;</a>
-<a name="ln1244">  }</a>
-<a name="ln1245">}</a>
+<a name="ln1234">  nlua_exec_file((const char *)eap-&gt;arg);</a>
+<a name="ln1235">}</a>
+<a name="ln1236"> </a>
+<a name="ln1237">/// execute lua code from a file.</a>
+<a name="ln1238">///</a>
+<a name="ln1239">/// @param  path  path of the file</a>
+<a name="ln1240">///</a>
+<a name="ln1241">/// @return  true if everything ok, false if there was an error (echoed)</a>
+<a name="ln1242">bool nlua_exec_file(const char *path)</a>
+<a name="ln1243">  FUNC_ATTR_NONNULL_ALL</a>
+<a name="ln1244">{</a>
+<a name="ln1245">  lua_State *const lstate = nlua_enter();</a>
 <a name="ln1246"> </a>
-<a name="ln1247">static void nlua_add_treesitter(lua_State *const lstate) FUNC_ATTR_NONNULL_ALL</a>
-<a name="ln1248">{</a>
-<a name="ln1249">  tslua_init(lstate);</a>
-<a name="ln1250"> </a>
-<a name="ln1251">  lua_pushcfunction(lstate, tslua_push_parser);</a>
-<a name="ln1252">  lua_setfield(lstate, -2, &quot;_create_ts_parser&quot;);</a>
-<a name="ln1253"> </a>
-<a name="ln1254">  lua_pushcfunction(lstate, tslua_add_language);</a>
-<a name="ln1255">  lua_setfield(lstate, -2, &quot;_ts_add_language&quot;);</a>
+<a name="ln1247">  if (luaL_loadfile(lstate, path)) {</a>
+<a name="ln1248">    nlua_error(lstate, _(&quot;E5112: Error while creating lua chunk: %.*s&quot;));</a>
+<a name="ln1249">    return false;</a>
+<a name="ln1250">  }</a>
+<a name="ln1251"> </a>
+<a name="ln1252">  if (lua_pcall(lstate, 0, 0, 0)) {</a>
+<a name="ln1253">    nlua_error(lstate, _(&quot;E5113: Error while calling lua chunk: %.*s&quot;));</a>
+<a name="ln1254">    return false;</a>
+<a name="ln1255">  }</a>
 <a name="ln1256"> </a>
-<a name="ln1257">  lua_pushcfunction(lstate, tslua_has_language);</a>
-<a name="ln1258">  lua_setfield(lstate, -2, &quot;_ts_has_language&quot;);</a>
+<a name="ln1257">  return true;</a>
+<a name="ln1258">}</a>
 <a name="ln1259"> </a>
-<a name="ln1260">  lua_pushcfunction(lstate, tslua_inspect_lang);</a>
-<a name="ln1261">  lua_setfield(lstate, -2, &quot;_ts_inspect_language&quot;);</a>
-<a name="ln1262"> </a>
-<a name="ln1263">  lua_pushcfunction(lstate, ts_lua_parse_query);</a>
-<a name="ln1264">  lua_setfield(lstate, -2, &quot;_ts_parse_query&quot;);</a>
-<a name="ln1265">}</a>
+<a name="ln1260">static void nlua_add_treesitter(lua_State *const lstate) FUNC_ATTR_NONNULL_ALL</a>
+<a name="ln1261">{</a>
+<a name="ln1262">  tslua_init(lstate);</a>
+<a name="ln1263"> </a>
+<a name="ln1264">  lua_pushcfunction(lstate, tslua_push_parser);</a>
+<a name="ln1265">  lua_setfield(lstate, -2, &quot;_create_ts_parser&quot;);</a>
 <a name="ln1266"> </a>
-<a name="ln1267">static int nlua_regex(lua_State *lstate)</a>
-<a name="ln1268">{</a>
-<a name="ln1269">  Error err = ERROR_INIT;</a>
-<a name="ln1270">  const char *text = luaL_checkstring(lstate, 1);</a>
-<a name="ln1271">  regprog_T *prog = NULL;</a>
+<a name="ln1267">  lua_pushcfunction(lstate, tslua_add_language);</a>
+<a name="ln1268">  lua_setfield(lstate, -2, &quot;_ts_add_language&quot;);</a>
+<a name="ln1269"> </a>
+<a name="ln1270">  lua_pushcfunction(lstate, tslua_has_language);</a>
+<a name="ln1271">  lua_setfield(lstate, -2, &quot;_ts_has_language&quot;);</a>
 <a name="ln1272"> </a>
-<a name="ln1273">  TRY_WRAP({</a>
-<a name="ln1274">    try_start();</a>
-<a name="ln1275">    prog = vim_regcomp((char_u *)text, RE_AUTO | RE_MAGIC | RE_STRICT);</a>
-<a name="ln1276">    try_end(&amp;err);</a>
-<a name="ln1277">  });</a>
-<a name="ln1278"> </a>
-<a name="ln1279">  if (ERROR_SET(&amp;err)) {</a>
-<a name="ln1280">    return luaL_error(lstate, &quot;couldn't parse regex: %s&quot;, err.msg);</a>
-<a name="ln1281">  }</a>
-<a name="ln1282">  assert(prog);</a>
-<a name="ln1283"> </a>
-<a name="ln1284">  regprog_T **p = lua_newuserdata(lstate, sizeof(regprog_T *));</a>
-<a name="ln1285">  *p = prog;</a>
-<a name="ln1286"> </a>
-<a name="ln1287">  lua_getfield(lstate, LUA_REGISTRYINDEX, &quot;nvim_regex&quot;);  // [udata, meta]</a>
-<a name="ln1288">  lua_setmetatable(lstate, -2);  // [udata]</a>
-<a name="ln1289">  return 1;</a>
-<a name="ln1290">}</a>
+<a name="ln1273">  lua_pushcfunction(lstate, tslua_inspect_lang);</a>
+<a name="ln1274">  lua_setfield(lstate, -2, &quot;_ts_inspect_language&quot;);</a>
+<a name="ln1275"> </a>
+<a name="ln1276">  lua_pushcfunction(lstate, ts_lua_parse_query);</a>
+<a name="ln1277">  lua_setfield(lstate, -2, &quot;_ts_parse_query&quot;);</a>
+<a name="ln1278">}</a>
+<a name="ln1279"> </a>
+<a name="ln1280">static int nlua_regex(lua_State *lstate)</a>
+<a name="ln1281">{</a>
+<a name="ln1282">  Error err = ERROR_INIT;</a>
+<a name="ln1283">  const char *text = luaL_checkstring(lstate, 1);</a>
+<a name="ln1284">  regprog_T *prog = NULL;</a>
+<a name="ln1285"> </a>
+<a name="ln1286">  TRY_WRAP({</a>
+<a name="ln1287">    try_start();</a>
+<a name="ln1288">    prog = vim_regcomp((char_u *)text, RE_AUTO | RE_MAGIC | RE_STRICT);</a>
+<a name="ln1289">    try_end(&amp;err);</a>
+<a name="ln1290">  });</a>
 <a name="ln1291"> </a>
-<a name="ln1292">static regprog_T **regex_check(lua_State *L)</a>
-<a name="ln1293">{</a>
-<a name="ln1294">  return luaL_checkudata(L, 1, &quot;nvim_regex&quot;);</a>
-<a name="ln1295">}</a>
+<a name="ln1292">  if (ERROR_SET(&amp;err)) {</a>
+<a name="ln1293">    return luaL_error(lstate, &quot;couldn't parse regex: %s&quot;, err.msg);</a>
+<a name="ln1294">  }</a>
+<a name="ln1295">  assert(prog);</a>
 <a name="ln1296"> </a>
-<a name="ln1297"> </a>
-<a name="ln1298">static int regex_gc(lua_State *lstate)</a>
-<a name="ln1299">{</a>
-<a name="ln1300">  regprog_T **prog = regex_check(lstate);</a>
-<a name="ln1301">  vim_regfree(*prog);</a>
-<a name="ln1302">  return 0;</a>
+<a name="ln1297">  regprog_T **p = lua_newuserdata(lstate, sizeof(regprog_T *));</a>
+<a name="ln1298">  *p = prog;</a>
+<a name="ln1299"> </a>
+<a name="ln1300">  lua_getfield(lstate, LUA_REGISTRYINDEX, &quot;nvim_regex&quot;);  // [udata, meta]</a>
+<a name="ln1301">  lua_setmetatable(lstate, -2);  // [udata]</a>
+<a name="ln1302">  return 1;</a>
 <a name="ln1303">}</a>
 <a name="ln1304"> </a>
-<a name="ln1305">static int regex_tostring(lua_State *lstate)</a>
+<a name="ln1305">static regprog_T **regex_check(lua_State *L)</a>
 <a name="ln1306">{</a>
-<a name="ln1307">  lua_pushstring(lstate, &quot;&lt;regex&gt;&quot;);</a>
-<a name="ln1308">  return 1;</a>
-<a name="ln1309">}</a>
+<a name="ln1307">  return luaL_checkudata(L, 1, &quot;nvim_regex&quot;);</a>
+<a name="ln1308">}</a>
+<a name="ln1309"> </a>
 <a name="ln1310"> </a>
-<a name="ln1311">static int regex_match(lua_State *lstate, regprog_T **prog, char_u *str)</a>
+<a name="ln1311">static int regex_gc(lua_State *lstate)</a>
 <a name="ln1312">{</a>
-<a name="ln1313">  regmatch_T rm;</a>
-<a name="ln1314">  rm.regprog = *prog;</a>
-<a name="ln1315">  rm.rm_ic = false;</a>
-<a name="ln1316">  bool match = vim_regexec(&amp;rm, str, 0);</a>
-<a name="ln1317">  *prog = rm.regprog;</a>
-<a name="ln1318"> </a>
-<a name="ln1319">  if (match) {</a>
-<a name="ln1320">    lua_pushinteger(lstate, (lua_Integer)(rm.startp[0]-str));</a>
-<a name="ln1321">    lua_pushinteger(lstate, (lua_Integer)(rm.endp[0]-str));</a>
-<a name="ln1322">    return 2;</a>
-<a name="ln1323">  }</a>
-<a name="ln1324">  return 0;</a>
-<a name="ln1325">}</a>
-<a name="ln1326"> </a>
-<a name="ln1327">static int regex_match_str(lua_State *lstate)</a>
-<a name="ln1328">{</a>
-<a name="ln1329">  regprog_T **prog = regex_check(lstate);</a>
-<a name="ln1330">  const char *str = luaL_checkstring(lstate, 2);</a>
-<a name="ln1331">  int nret = regex_match(lstate, prog, (char_u *)str);</a>
-<a name="ln1332"> </a>
-<a name="ln1333">  if (!*prog) {</a>
-<a name="ln1334">    return luaL_error(lstate, &quot;regex: internal error&quot;);</a>
-<a name="ln1335">  }</a>
-<a name="ln1336"> </a>
-<a name="ln1337">  return nret;</a>
+<a name="ln1313">  regprog_T **prog = regex_check(lstate);</a>
+<a name="ln1314">  vim_regfree(*prog);</a>
+<a name="ln1315">  return 0;</a>
+<a name="ln1316">}</a>
+<a name="ln1317"> </a>
+<a name="ln1318">static int regex_tostring(lua_State *lstate)</a>
+<a name="ln1319">{</a>
+<a name="ln1320">  lua_pushstring(lstate, &quot;&lt;regex&gt;&quot;);</a>
+<a name="ln1321">  return 1;</a>
+<a name="ln1322">}</a>
+<a name="ln1323"> </a>
+<a name="ln1324">static int regex_match(lua_State *lstate, regprog_T **prog, char_u *str)</a>
+<a name="ln1325">{</a>
+<a name="ln1326">  regmatch_T rm;</a>
+<a name="ln1327">  rm.regprog = *prog;</a>
+<a name="ln1328">  rm.rm_ic = false;</a>
+<a name="ln1329">  bool match = vim_regexec(&amp;rm, str, 0);</a>
+<a name="ln1330">  *prog = rm.regprog;</a>
+<a name="ln1331"> </a>
+<a name="ln1332">  if (match) {</a>
+<a name="ln1333">    lua_pushinteger(lstate, (lua_Integer)(rm.startp[0]-str));</a>
+<a name="ln1334">    lua_pushinteger(lstate, (lua_Integer)(rm.endp[0]-str));</a>
+<a name="ln1335">    return 2;</a>
+<a name="ln1336">  }</a>
+<a name="ln1337">  return 0;</a>
 <a name="ln1338">}</a>
 <a name="ln1339"> </a>
-<a name="ln1340">static int regex_match_line(lua_State *lstate)</a>
+<a name="ln1340">static int regex_match_str(lua_State *lstate)</a>
 <a name="ln1341">{</a>
 <a name="ln1342">  regprog_T **prog = regex_check(lstate);</a>
-<a name="ln1343"> </a>
-<a name="ln1344">  int narg = lua_gettop(lstate);</a>
-<a name="ln1345">  if (narg &lt; 3) {</a>
-<a name="ln1346">    return luaL_error(lstate, &quot;not enough args&quot;);</a>
-<a name="ln1347">  }</a>
-<a name="ln1348"> </a>
-<a name="ln1349">  long bufnr = luaL_checkinteger(lstate, 2);</a>
-<a name="ln1350">  long rownr = luaL_checkinteger(lstate, 3);</a>
-<a name="ln1351">  long start = 0, end = -1;</a>
-<a name="ln1352">  if (narg &gt;= 4) {</a>
-<a name="ln1353">    start = luaL_checkinteger(lstate, 4);</a>
-<a name="ln1354">  }</a>
-<a name="ln1355">  if (narg &gt;= 5) {</a>
-<a name="ln1356">    end = luaL_checkinteger(lstate, 5);</a>
-<a name="ln1357">    if (end &lt; 0) {</a>
-<a name="ln1358">      return luaL_error(lstate, &quot;invalid end&quot;);</a>
-<a name="ln1359">    }</a>
+<a name="ln1343">  const char *str = luaL_checkstring(lstate, 2);</a>
+<a name="ln1344">  int nret = regex_match(lstate, prog, (char_u *)str);</a>
+<a name="ln1345"> </a>
+<a name="ln1346">  if (!*prog) {</a>
+<a name="ln1347">    return luaL_error(lstate, &quot;regex: internal error&quot;);</a>
+<a name="ln1348">  }</a>
+<a name="ln1349"> </a>
+<a name="ln1350">  return nret;</a>
+<a name="ln1351">}</a>
+<a name="ln1352"> </a>
+<a name="ln1353">static int regex_match_line(lua_State *lstate)</a>
+<a name="ln1354">{</a>
+<a name="ln1355">  regprog_T **prog = regex_check(lstate);</a>
+<a name="ln1356"> </a>
+<a name="ln1357">  int narg = lua_gettop(lstate);</a>
+<a name="ln1358">  if (narg &lt; 3) {</a>
+<a name="ln1359">    return luaL_error(lstate, &quot;not enough args&quot;);</a>
 <a name="ln1360">  }</a>
 <a name="ln1361"> </a>
-<a name="ln1362">  buf_T *buf = bufnr ? handle_get_buffer((int)bufnr) : curbuf;</a>
-<a name="ln1363">  if (!buf || buf-&gt;b_ml.ml_mfp == NULL) {</a>
-<a name="ln1364">    return luaL_error(lstate, &quot;invalid buffer&quot;);</a>
-<a name="ln1365">  }</a>
-<a name="ln1366"> </a>
-<a name="ln1367">  if (rownr &gt;= buf-&gt;b_ml.ml_line_count) {</a>
-<a name="ln1368">    return luaL_error(lstate, &quot;invalid row&quot;);</a>
-<a name="ln1369">  }</a>
-<a name="ln1370"> </a>
-<a name="ln1371">  char_u *line = ml_get_buf(buf, rownr+1, false);</a>
-<a name="ln1372">  size_t len = STRLEN(line);</a>
-<a name="ln1373"> </a>
-<a name="ln1374">  if (start &lt; 0 || (size_t)start &gt; len) {</a>
-<a name="ln1375">    return luaL_error(lstate, &quot;invalid start&quot;);</a>
-<a name="ln1376">  }</a>
-<a name="ln1377"> </a>
-<a name="ln1378">  char_u save = NUL;</a>
-<a name="ln1379">  if (end &gt;= 0) {</a>
-<a name="ln1380">    if ((size_t)end &gt; len || end &lt; start) {</a>
-<a name="ln1381">      return luaL_error(lstate, &quot;invalid end&quot;);</a>
-<a name="ln1382">    }</a>
-<a name="ln1383">    save = line[end];</a>
-<a name="ln1384">    line[end] = NUL;</a>
-<a name="ln1385">  }</a>
+<a name="ln1362">  long bufnr = luaL_checkinteger(lstate, 2);</a>
+<a name="ln1363">  long rownr = luaL_checkinteger(lstate, 3);</a>
+<a name="ln1364">  long start = 0, end = -1;</a>
+<a name="ln1365">  if (narg &gt;= 4) {</a>
+<a name="ln1366">    start = luaL_checkinteger(lstate, 4);</a>
+<a name="ln1367">  }</a>
+<a name="ln1368">  if (narg &gt;= 5) {</a>
+<a name="ln1369">    end = luaL_checkinteger(lstate, 5);</a>
+<a name="ln1370">    if (end &lt; 0) {</a>
+<a name="ln1371">      return luaL_error(lstate, &quot;invalid end&quot;);</a>
+<a name="ln1372">    }</a>
+<a name="ln1373">  }</a>
+<a name="ln1374"> </a>
+<a name="ln1375">  buf_T *buf = bufnr ? handle_get_buffer((int)bufnr) : curbuf;</a>
+<a name="ln1376">  if (!buf || buf-&gt;b_ml.ml_mfp == NULL) {</a>
+<a name="ln1377">    return luaL_error(lstate, &quot;invalid buffer&quot;);</a>
+<a name="ln1378">  }</a>
+<a name="ln1379"> </a>
+<a name="ln1380">  if (rownr &gt;= buf-&gt;b_ml.ml_line_count) {</a>
+<a name="ln1381">    return luaL_error(lstate, &quot;invalid row&quot;);</a>
+<a name="ln1382">  }</a>
+<a name="ln1383"> </a>
+<a name="ln1384">  char_u *line = ml_get_buf(buf, rownr+1, false);</a>
+<a name="ln1385">  size_t len = STRLEN(line);</a>
 <a name="ln1386"> </a>
-<a name="ln1387">  int nret = regex_match(lstate, prog, line+start);</a>
-<a name="ln1388"> </a>
-<a name="ln1389">  if (end &gt;= 0) {</a>
-<a name="ln1390">    line[end] = save;</a>
-<a name="ln1391">  }</a>
-<a name="ln1392"> </a>
-<a name="ln1393">  if (!*prog) {</a>
-<a name="ln1394">    return luaL_error(lstate, &quot;regex: internal error&quot;);</a>
-<a name="ln1395">  }</a>
-<a name="ln1396"> </a>
-<a name="ln1397">  return nret;</a>
-<a name="ln1398">}</a>
+<a name="ln1387">  if (start &lt; 0 || (size_t)start &gt; len) {</a>
+<a name="ln1388">    return luaL_error(lstate, &quot;invalid start&quot;);</a>
+<a name="ln1389">  }</a>
+<a name="ln1390"> </a>
+<a name="ln1391">  char_u save = NUL;</a>
+<a name="ln1392">  if (end &gt;= 0) {</a>
+<a name="ln1393">    if ((size_t)end &gt; len || end &lt; start) {</a>
+<a name="ln1394">      return luaL_error(lstate, &quot;invalid end&quot;);</a>
+<a name="ln1395">    }</a>
+<a name="ln1396">    save = line[end];</a>
+<a name="ln1397">    line[end] = NUL;</a>
+<a name="ln1398">  }</a>
 <a name="ln1399"> </a>
-<a name="ln1400">int nlua_CFunction_func_call(</a>
-<a name="ln1401">    int argcount,</a>
-<a name="ln1402">    typval_T *argvars,</a>
-<a name="ln1403">    typval_T *rettv,</a>
-<a name="ln1404">    void *state)</a>
-<a name="ln1405">{</a>
-<a name="ln1406">    lua_State *const lstate = nlua_enter();</a>
-<a name="ln1407">    LuaCFunctionState *funcstate = (LuaCFunctionState *)state;</a>
-<a name="ln1408"> </a>
-<a name="ln1409">    return typval_exec_lua_callable(</a>
-<a name="ln1410">        lstate,</a>
-<a name="ln1411">        funcstate-&gt;lua_callable,</a>
-<a name="ln1412">        argcount,</a>
-<a name="ln1413">        argvars,</a>
-<a name="ln1414">        rettv);</a>
-<a name="ln1415">}</a>
-<a name="ln1416">/// Required functions for lua c functions as VimL callbacks</a>
-<a name="ln1417">void nlua_CFunction_func_free(void *state)</a>
+<a name="ln1400">  int nret = regex_match(lstate, prog, line+start);</a>
+<a name="ln1401"> </a>
+<a name="ln1402">  if (end &gt;= 0) {</a>
+<a name="ln1403">    line[end] = save;</a>
+<a name="ln1404">  }</a>
+<a name="ln1405"> </a>
+<a name="ln1406">  if (!*prog) {</a>
+<a name="ln1407">    return luaL_error(lstate, &quot;regex: internal error&quot;);</a>
+<a name="ln1408">  }</a>
+<a name="ln1409"> </a>
+<a name="ln1410">  return nret;</a>
+<a name="ln1411">}</a>
+<a name="ln1412"> </a>
+<a name="ln1413">int nlua_CFunction_func_call(</a>
+<a name="ln1414">    int argcount,</a>
+<a name="ln1415">    typval_T *argvars,</a>
+<a name="ln1416">    typval_T *rettv,</a>
+<a name="ln1417">    void *state)</a>
 <a name="ln1418">{</a>
 <a name="ln1419">    lua_State *const lstate = nlua_enter();</a>
 <a name="ln1420">    LuaCFunctionState *funcstate = (LuaCFunctionState *)state;</a>
 <a name="ln1421"> </a>
-<a name="ln1422">    nlua_unref(lstate, funcstate-&gt;lua_callable.func_ref);</a>
-<a name="ln1423">    nlua_unref(lstate, funcstate-&gt;lua_callable.table_ref);</a>
-<a name="ln1424">    xfree(funcstate);</a>
-<a name="ln1425">}</a>
-<a name="ln1426"> </a>
-<a name="ln1427">bool nlua_is_table_from_lua(typval_T *const arg)</a>
-<a name="ln1428">{</a>
-<a name="ln1429">  if (arg-&gt;v_type != VAR_DICT &amp;&amp; arg-&gt;v_type != VAR_LIST) {</a>
-<a name="ln1430">    return false;</a>
-<a name="ln1431">  }</a>
-<a name="ln1432"> </a>
-<a name="ln1433">  if (arg-&gt;v_type == VAR_DICT) {</a>
-<a name="ln1434">    return arg-&gt;vval.v_dict-&gt;lua_table_ref &gt; 0</a>
-<a name="ln1435">      &amp;&amp; arg-&gt;vval.v_dict-&gt;lua_table_ref != LUA_NOREF;</a>
-<a name="ln1436">  } else if (arg-&gt;v_type == VAR_LIST) {</a>
-<a name="ln1437">    return arg-&gt;vval.v_list-&gt;lua_table_ref &gt; 0</a>
-<a name="ln1438">      &amp;&amp; arg-&gt;vval.v_list-&gt;lua_table_ref != LUA_NOREF;</a>
-<a name="ln1439">  }</a>
-<a name="ln1440"> </a>
-<a name="ln1441">  return false;</a>
-<a name="ln1442">}</a>
-<a name="ln1443"> </a>
-<a name="ln1444">char_u *nlua_register_table_as_callable(typval_T *const arg)</a>
-<a name="ln1445">{</a>
-<a name="ln1446">  if (!nlua_is_table_from_lua(arg)) {</a>
-<a name="ln1447">    return NULL;</a>
-<a name="ln1448">  }</a>
-<a name="ln1449"> </a>
-<a name="ln1450">  LuaRef table_ref;</a>
-<a name="ln1451">  if (arg-&gt;v_type == VAR_DICT) {</a>
-<a name="ln1452">    table_ref = arg-&gt;vval.v_dict-&gt;lua_table_ref;</a>
-<a name="ln1453">  } else if (arg-&gt;v_type == VAR_LIST) {</a>
-<a name="ln1454">    table_ref = arg-&gt;vval.v_list-&gt;lua_table_ref;</a>
-<a name="ln1455">  } else {</a>
-<a name="ln1456">    return NULL;</a>
-<a name="ln1457">  }</a>
-<a name="ln1458"> </a>
-<a name="ln1459">  lua_State *const lstate = nlua_enter();</a>
-<a name="ln1460"> </a>
-<a name="ln1461">#ifndef NDEBUG</a>
-<a name="ln1462">  int top = lua_gettop(lstate);</a>
-<a name="ln1463">#endif</a>
-<a name="ln1464"> </a>
-<a name="ln1465">  nlua_pushref(lstate, table_ref);</a>
-<a name="ln1466">  if (!lua_getmetatable(lstate, -1)) {</a>
-<a name="ln1467">    return NULL;</a>
-<a name="ln1468">  }</a>
-<a name="ln1469"> </a>
-<a name="ln1470">  lua_getfield(lstate, -1, &quot;__call&quot;);</a>
-<a name="ln1471">  if (!lua_isfunction(lstate, -1)) {</a>
-<a name="ln1472">    return NULL;</a>
-<a name="ln1473">  }</a>
-<a name="ln1474"> </a>
-<a name="ln1475">  LuaRef new_table_ref = nlua_newref(lstate, table_ref);</a>
-<a name="ln1476"> </a>
-<a name="ln1477">  LuaCFunctionState *state = xmalloc(sizeof(LuaCFunctionState));</a>
-<a name="ln1478">  state-&gt;lua_callable.func_ref = nlua_ref(lstate, -1);</a>
-<a name="ln1479">  state-&gt;lua_callable.table_ref = new_table_ref;</a>
-<a name="ln1480"> </a>
-<a name="ln1481">  char_u *name = register_cfunc(</a>
-<a name="ln1482">      &amp;nlua_CFunction_func_call,</a>
-<a name="ln1483">      &amp;nlua_CFunction_func_free,</a>
-<a name="ln1484">      state);</a>
-<a name="ln1485"> </a>
-<a name="ln1486"> </a>
-<a name="ln1487">  lua_pop(lstate, 3);</a>
-<a name="ln1488">  assert(top == lua_gettop(lstate));</a>
+<a name="ln1422">    return typval_exec_lua_callable(</a>
+<a name="ln1423">        lstate,</a>
+<a name="ln1424">        funcstate-&gt;lua_callable,</a>
+<a name="ln1425">        argcount,</a>
+<a name="ln1426">        argvars,</a>
+<a name="ln1427">        rettv);</a>
+<a name="ln1428">}</a>
+<a name="ln1429">/// Required functions for lua c functions as VimL callbacks</a>
+<a name="ln1430">void nlua_CFunction_func_free(void *state)</a>
+<a name="ln1431">{</a>
+<a name="ln1432">    lua_State *const lstate = nlua_enter();</a>
+<a name="ln1433">    LuaCFunctionState *funcstate = (LuaCFunctionState *)state;</a>
+<a name="ln1434"> </a>
+<a name="ln1435">    nlua_unref(lstate, funcstate-&gt;lua_callable.func_ref);</a>
+<a name="ln1436">    nlua_unref(lstate, funcstate-&gt;lua_callable.table_ref);</a>
+<a name="ln1437">    xfree(funcstate);</a>
+<a name="ln1438">}</a>
+<a name="ln1439"> </a>
+<a name="ln1440">bool nlua_is_table_from_lua(typval_T *const arg)</a>
+<a name="ln1441">{</a>
+<a name="ln1442">  if (arg-&gt;v_type != VAR_DICT &amp;&amp; arg-&gt;v_type != VAR_LIST) {</a>
+<a name="ln1443">    return false;</a>
+<a name="ln1444">  }</a>
+<a name="ln1445"> </a>
+<a name="ln1446">  if (arg-&gt;v_type == VAR_DICT) {</a>
+<a name="ln1447">    return arg-&gt;vval.v_dict-&gt;lua_table_ref &gt; 0</a>
+<a name="ln1448">      &amp;&amp; arg-&gt;vval.v_dict-&gt;lua_table_ref != LUA_NOREF;</a>
+<a name="ln1449">  } else if (arg-&gt;v_type == VAR_LIST) {</a>
+<a name="ln1450">    return arg-&gt;vval.v_list-&gt;lua_table_ref &gt; 0</a>
+<a name="ln1451">      &amp;&amp; arg-&gt;vval.v_list-&gt;lua_table_ref != LUA_NOREF;</a>
+<a name="ln1452">  }</a>
+<a name="ln1453"> </a>
+<a name="ln1454">  return false;</a>
+<a name="ln1455">}</a>
+<a name="ln1456"> </a>
+<a name="ln1457">char_u *nlua_register_table_as_callable(typval_T *const arg)</a>
+<a name="ln1458">{</a>
+<a name="ln1459">  if (!nlua_is_table_from_lua(arg)) {</a>
+<a name="ln1460">    return NULL;</a>
+<a name="ln1461">  }</a>
+<a name="ln1462"> </a>
+<a name="ln1463">  LuaRef table_ref;</a>
+<a name="ln1464">  if (arg-&gt;v_type == VAR_DICT) {</a>
+<a name="ln1465">    table_ref = arg-&gt;vval.v_dict-&gt;lua_table_ref;</a>
+<a name="ln1466">  } else if (arg-&gt;v_type == VAR_LIST) {</a>
+<a name="ln1467">    table_ref = arg-&gt;vval.v_list-&gt;lua_table_ref;</a>
+<a name="ln1468">  } else {</a>
+<a name="ln1469">    return NULL;</a>
+<a name="ln1470">  }</a>
+<a name="ln1471"> </a>
+<a name="ln1472">  lua_State *const lstate = nlua_enter();</a>
+<a name="ln1473"> </a>
+<a name="ln1474">#ifndef NDEBUG</a>
+<a name="ln1475">  int top = lua_gettop(lstate);</a>
+<a name="ln1476">#endif</a>
+<a name="ln1477"> </a>
+<a name="ln1478">  nlua_pushref(lstate, table_ref);</a>
+<a name="ln1479">  if (!lua_getmetatable(lstate, -1)) {</a>
+<a name="ln1480">    return NULL;</a>
+<a name="ln1481">  }</a>
+<a name="ln1482"> </a>
+<a name="ln1483">  lua_getfield(lstate, -1, &quot;__call&quot;);</a>
+<a name="ln1484">  if (!lua_isfunction(lstate, -1)) {</a>
+<a name="ln1485">    return NULL;</a>
+<a name="ln1486">  }</a>
+<a name="ln1487"> </a>
+<a name="ln1488">  LuaRef new_table_ref = nlua_newref(lstate, table_ref);</a>
 <a name="ln1489"> </a>
-<a name="ln1490">  return name;</a>
-<a name="ln1491">}</a>
-<a name="ln1492"> </a>
-<a name="ln1493">/// Helper function to free a list_T</a>
-<a name="ln1494">void nlua_free_typval_list(list_T *const l)</a>
-<a name="ln1495">{</a>
-<a name="ln1496">  if (l-&gt;lua_table_ref != LUA_NOREF &amp;&amp; l-&gt;lua_table_ref &gt; 0) {</a>
-<a name="ln1497">    lua_State *const lstate = nlua_enter();</a>
-<a name="ln1498">    nlua_unref(lstate, l-&gt;lua_table_ref);</a>
-<a name="ln1499">    l-&gt;lua_table_ref = LUA_NOREF;</a>
-<a name="ln1500">  }</a>
-<a name="ln1501">}</a>
+<a name="ln1490">  LuaCFunctionState *state = xmalloc(sizeof(LuaCFunctionState));</a>
+<a name="ln1491">  state-&gt;lua_callable.func_ref = nlua_ref(lstate, -1);</a>
+<a name="ln1492">  state-&gt;lua_callable.table_ref = new_table_ref;</a>
+<a name="ln1493"> </a>
+<a name="ln1494">  char_u *name = register_cfunc(</a>
+<a name="ln1495">      &amp;nlua_CFunction_func_call,</a>
+<a name="ln1496">      &amp;nlua_CFunction_func_free,</a>
+<a name="ln1497">      state);</a>
+<a name="ln1498"> </a>
+<a name="ln1499"> </a>
+<a name="ln1500">  lua_pop(lstate, 3);</a>
+<a name="ln1501">  assert(top == lua_gettop(lstate));</a>
 <a name="ln1502"> </a>
-<a name="ln1503"> </a>
-<a name="ln1504">/// Helper function to free a dict_T</a>
-<a name="ln1505">void nlua_free_typval_dict(dict_T *const d)</a>
-<a name="ln1506">{</a>
-<a name="ln1507">  if (d-&gt;lua_table_ref != LUA_NOREF &amp;&amp; d-&gt;lua_table_ref &gt; 0) {</a>
-<a name="ln1508">    lua_State *const lstate = nlua_enter();</a>
-<a name="ln1509">    nlua_unref(lstate, d-&gt;lua_table_ref);</a>
-<a name="ln1510">    d-&gt;lua_table_ref = LUA_NOREF;</a>
-<a name="ln1511">  }</a>
-<a name="ln1512">}</a>
-<a name="ln1513"> </a>
-<a name="ln1514">void nlua_execute_log_keystroke(int c)</a>
-<a name="ln1515">{</a>
-<a name="ln1516">  char_u buf[NUMBUFLEN];</a>
-<a name="ln1517">  size_t buf_len = special_to_buf(c, mod_mask, false, buf);</a>
-<a name="ln1518"> </a>
-<a name="ln1519">  lua_State *const lstate = nlua_enter();</a>
-<a name="ln1520"> </a>
-<a name="ln1521">#ifndef NDEBUG</a>
-<a name="ln1522">  int top = lua_gettop(lstate);</a>
-<a name="ln1523">#endif</a>
-<a name="ln1524"> </a>
-<a name="ln1525">  // [ vim ]</a>
-<a name="ln1526">  lua_getglobal(lstate, &quot;vim&quot;);</a>
-<a name="ln1527"> </a>
-<a name="ln1528">  // [ vim, vim._log_keystroke ]</a>
-<a name="ln1529">  lua_getfield(lstate, -1, &quot;_log_keystroke&quot;);</a>
-<a name="ln1530">  luaL_checktype(lstate, -1, LUA_TFUNCTION);</a>
+<a name="ln1503">  return name;</a>
+<a name="ln1504">}</a>
+<a name="ln1505"> </a>
+<a name="ln1506">/// Helper function to free a list_T</a>
+<a name="ln1507">void nlua_free_typval_list(list_T *const l)</a>
+<a name="ln1508">{</a>
+<a name="ln1509">  if (l-&gt;lua_table_ref != LUA_NOREF &amp;&amp; l-&gt;lua_table_ref &gt; 0) {</a>
+<a name="ln1510">    lua_State *const lstate = nlua_enter();</a>
+<a name="ln1511">    nlua_unref(lstate, l-&gt;lua_table_ref);</a>
+<a name="ln1512">    l-&gt;lua_table_ref = LUA_NOREF;</a>
+<a name="ln1513">  }</a>
+<a name="ln1514">}</a>
+<a name="ln1515"> </a>
+<a name="ln1516"> </a>
+<a name="ln1517">/// Helper function to free a dict_T</a>
+<a name="ln1518">void nlua_free_typval_dict(dict_T *const d)</a>
+<a name="ln1519">{</a>
+<a name="ln1520">  if (d-&gt;lua_table_ref != LUA_NOREF &amp;&amp; d-&gt;lua_table_ref &gt; 0) {</a>
+<a name="ln1521">    lua_State *const lstate = nlua_enter();</a>
+<a name="ln1522">    nlua_unref(lstate, d-&gt;lua_table_ref);</a>
+<a name="ln1523">    d-&gt;lua_table_ref = LUA_NOREF;</a>
+<a name="ln1524">  }</a>
+<a name="ln1525">}</a>
+<a name="ln1526"> </a>
+<a name="ln1527">void nlua_execute_log_keystroke(int c)</a>
+<a name="ln1528">{</a>
+<a name="ln1529">  char_u buf[NUMBUFLEN];</a>
+<a name="ln1530">  size_t buf_len = special_to_buf(c, mod_mask, false, buf);</a>
 <a name="ln1531"> </a>
-<a name="ln1532">  // [ vim, vim._log_keystroke, buf ]</a>
-<a name="ln1533">  lua_pushlstring(lstate, (const char *)buf, buf_len);</a>
-<a name="ln1534"> </a>
-<a name="ln1535">  if (lua_pcall(lstate, 1, 0, 0)) {</a>
-<a name="ln1536">    nlua_error(</a>
-<a name="ln1537">        lstate,</a>
-<a name="ln1538">        _(&quot;Error executing vim.log_keystroke lua callback: %.*s&quot;));</a>
-<a name="ln1539">  }</a>
+<a name="ln1532">  lua_State *const lstate = nlua_enter();</a>
+<a name="ln1533"> </a>
+<a name="ln1534">#ifndef NDEBUG</a>
+<a name="ln1535">  int top = lua_gettop(lstate);</a>
+<a name="ln1536">#endif</a>
+<a name="ln1537"> </a>
+<a name="ln1538">  // [ vim ]</a>
+<a name="ln1539">  lua_getglobal(lstate, &quot;vim&quot;);</a>
 <a name="ln1540"> </a>
-<a name="ln1541">  // [ vim ]</a>
-<a name="ln1542">  lua_pop(lstate, 1);</a>
-<a name="ln1543"> </a>
-<a name="ln1544">#ifndef NDEBUG</a>
-<a name="ln1545">  // [ ]</a>
-<a name="ln1546">  assert(top == lua_gettop(lstate));</a>
-<a name="ln1547">#endif</a>
-<a name="ln1548">}</a>
-<a name="ln1549"> </a>
+<a name="ln1541">  // [ vim, vim._log_keystroke ]</a>
+<a name="ln1542">  lua_getfield(lstate, -1, &quot;_log_keystroke&quot;);</a>
+<a name="ln1543">  luaL_checktype(lstate, -1, LUA_TFUNCTION);</a>
+<a name="ln1544"> </a>
+<a name="ln1545">  // [ vim, vim._log_keystroke, buf ]</a>
+<a name="ln1546">  lua_pushlstring(lstate, (const char *)buf, buf_len);</a>
+<a name="ln1547"> </a>
+<a name="ln1548">  if (lua_pcall(lstate, 1, 0, 0)) {</a>
+<a name="ln1549">    nlua_error(</a>
+<a name="ln1550">        lstate,</a>
+<a name="ln1551">        _(&quot;Error executing vim.log_keystroke lua callback: %.*s&quot;));</a>
+<a name="ln1552">  }</a>
+<a name="ln1553"> </a>
+<a name="ln1554">  // [ vim ]</a>
+<a name="ln1555">  lua_pop(lstate, 1);</a>
+<a name="ln1556"> </a>
+<a name="ln1557">#ifndef NDEBUG</a>
+<a name="ln1558">  // [ ]</a>
+<a name="ln1559">  assert(top == lua_gettop(lstate));</a>
+<a name="ln1560">#endif</a>
+<a name="ln1561">}</a>
+<a name="ln1562"> </a>
 
 </code></pre>
-<div class="balloon" rel="1435"><p><span style="font-size:18px">&uarr;</span> <a href="https://www.viva64.com/en/w/v560/" target="_blank">V560</a> A part of conditional expression is always true: arg->vval.v_dict->lua_table_ref != (- 2).</p></div>
-<div class="balloon" rel="1438"><p><span style="font-size:18px">&uarr;</span> <a href="https://www.viva64.com/en/w/v560/" target="_blank">V560</a> A part of conditional expression is always true: arg->vval.v_list->lua_table_ref != (- 2).</p></div>
+<div class="balloon" rel="1448"><p><span style="font-size:18px">&uarr;</span> <a href="https://www.viva64.com/en/w/v560/" target="_blank">V560</a> A part of conditional expression is always true: arg->vval.v_dict->lua_table_ref != (- 2).</p></div>
+<div class="balloon" rel="1451"><p><span style="font-size:18px">&uarr;</span> <a href="https://www.viva64.com/en/w/v560/" target="_blank">V560</a> A part of conditional expression is always true: arg->vval.v_list->lua_table_ref != (- 2).</p></div>
 
 <link rel="stylesheet" href="highlight.css">
 <script src="highlight.pack.js"></script>

@@ -1,0 +1,1363 @@
+
+<html>
+<head>
+
+  <meta http-equiv="Content-Type" content="text/html; charset=US-ASCII" />
+  <title>fs.c</title>
+
+  <link rel="stylesheet" href="../style.css"/>
+  <script src="../jquery-3.5.1.min.js"></script>
+</head>
+<body>
+
+<pre><code class = "cpp">
+<a name="ln1">// This is an open source non-commercial project. Dear PVS-Studio, please check</a>
+<a name="ln2">// it. PVS-Studio Static Code Analyzer for C, C++ and C#: http://www.viva64.com</a>
+<a name="ln3"> </a>
+<a name="ln4">// fs.c -- filesystem access</a>
+<a name="ln5">#include &lt;stdbool.h&gt;</a>
+<a name="ln6">#include &lt;stddef.h&gt;</a>
+<a name="ln7">#include &lt;assert.h&gt;</a>
+<a name="ln8">#include &lt;limits.h&gt;</a>
+<a name="ln9">#include &lt;fcntl.h&gt;</a>
+<a name="ln10">#include &lt;errno.h&gt;</a>
+<a name="ln11"> </a>
+<a name="ln12">#include &quot;auto/config.h&quot;</a>
+<a name="ln13"> </a>
+<a name="ln14">#ifdef HAVE_SYS_UIO_H</a>
+<a name="ln15"># include &lt;sys/uio.h&gt;</a>
+<a name="ln16">#endif</a>
+<a name="ln17"> </a>
+<a name="ln18">#include &lt;uv.h&gt;</a>
+<a name="ln19"> </a>
+<a name="ln20">#include &quot;nvim/os/os.h&quot;</a>
+<a name="ln21">#include &quot;nvim/os/os_defs.h&quot;</a>
+<a name="ln22">#include &quot;nvim/ascii.h&quot;</a>
+<a name="ln23">#include &quot;nvim/memory.h&quot;</a>
+<a name="ln24">#include &quot;nvim/message.h&quot;</a>
+<a name="ln25">#include &quot;nvim/assert.h&quot;</a>
+<a name="ln26">#include &quot;nvim/misc1.h&quot;</a>
+<a name="ln27">#include &quot;nvim/option.h&quot;</a>
+<a name="ln28">#include &quot;nvim/path.h&quot;</a>
+<a name="ln29">#include &quot;nvim/strings.h&quot;</a>
+<a name="ln30"> </a>
+<a name="ln31">#ifdef WIN32</a>
+<a name="ln32">#include &quot;nvim/mbyte.h&quot;  // for utf8_to_utf16, utf16_to_utf8</a>
+<a name="ln33">#endif</a>
+<a name="ln34"> </a>
+<a name="ln35">#ifdef INCLUDE_GENERATED_DECLARATIONS</a>
+<a name="ln36"># include &quot;os/fs.c.generated.h&quot;</a>
+<a name="ln37">#endif</a>
+<a name="ln38"> </a>
+<a name="ln39">#define RUN_UV_FS_FUNC(ret, func, ...) \</a>
+<a name="ln40">    do { \</a>
+<a name="ln41">      bool did_try_to_free = false; \</a>
+<a name="ln42">uv_call_start: {} \</a>
+<a name="ln43">      uv_fs_t req; \</a>
+<a name="ln44">      ret = func(&amp;fs_loop, &amp;req, __VA_ARGS__); \</a>
+<a name="ln45">      uv_fs_req_cleanup(&amp;req); \</a>
+<a name="ln46">      if (ret == UV_ENOMEM &amp;&amp; !did_try_to_free) { \</a>
+<a name="ln47">        try_to_free_memory(); \</a>
+<a name="ln48">        did_try_to_free = true; \</a>
+<a name="ln49">        goto uv_call_start; \</a>
+<a name="ln50">      } \</a>
+<a name="ln51">    } while (0)</a>
+<a name="ln52"> </a>
+<a name="ln53">// Many fs functions from libuv return that value on success.</a>
+<a name="ln54">static const int kLibuvSuccess = 0;</a>
+<a name="ln55">static uv_loop_t fs_loop;</a>
+<a name="ln56"> </a>
+<a name="ln57"> </a>
+<a name="ln58">// Initialize the fs module</a>
+<a name="ln59">void fs_init(void)</a>
+<a name="ln60">{</a>
+<a name="ln61">  uv_loop_init(&amp;fs_loop);</a>
+<a name="ln62">}</a>
+<a name="ln63"> </a>
+<a name="ln64"> </a>
+<a name="ln65">/// Changes the current directory to `path`.</a>
+<a name="ln66">///</a>
+<a name="ln67">/// @return 0 on success, or negative error code.</a>
+<a name="ln68">int os_chdir(const char *path)</a>
+<a name="ln69">  FUNC_ATTR_NONNULL_ALL</a>
+<a name="ln70">{</a>
+<a name="ln71">  if (p_verbose &gt;= 5) {</a>
+<a name="ln72">    verbose_enter();</a>
+<a name="ln73">    smsg(&quot;chdir(%s)&quot;, path);</a>
+<a name="ln74">    verbose_leave();</a>
+<a name="ln75">  }</a>
+<a name="ln76">  return uv_chdir(path);</a>
+<a name="ln77">}</a>
+<a name="ln78"> </a>
+<a name="ln79">/// Get the name of current directory.</a>
+<a name="ln80">///</a>
+<a name="ln81">/// @param buf Buffer to store the directory name.</a>
+<a name="ln82">/// @param len Length of `buf`.</a>
+<a name="ln83">/// @return `OK` for success, `FAIL` for failure.</a>
+<a name="ln84">int os_dirname(char_u *buf, size_t len)</a>
+<a name="ln85">  FUNC_ATTR_NONNULL_ALL</a>
+<a name="ln86">{</a>
+<a name="ln87">  int error_number;</a>
+<a name="ln88">  if ((error_number = uv_cwd((char *)buf, &amp;len)) != kLibuvSuccess) {</a>
+<a name="ln89">    STRLCPY(buf, uv_strerror(error_number), len);</a>
+<a name="ln90">    return FAIL;</a>
+<a name="ln91">  }</a>
+<a name="ln92">  return OK;</a>
+<a name="ln93">}</a>
+<a name="ln94"> </a>
+<a name="ln95">/// Check if the given path is a directory and not a symlink to a directory.</a>
+<a name="ln96">/// @return `true` if `name` is a directory and NOT a symlink to a directory.</a>
+<a name="ln97">///         `false` if `name` is not a directory or if an error occurred.</a>
+<a name="ln98">bool os_isrealdir(const char *name)</a>
+<a name="ln99">  FUNC_ATTR_NONNULL_ALL</a>
+<a name="ln100">{</a>
+<a name="ln101">  uv_fs_t request;</a>
+<a name="ln102">  if (uv_fs_lstat(&amp;fs_loop, &amp;request, name, NULL) != kLibuvSuccess) {</a>
+<a name="ln103">    return false;</a>
+<a name="ln104">  }</a>
+<a name="ln105">  if (S_ISLNK(request.statbuf.st_mode)) {</a>
+<a name="ln106">    return false;</a>
+<a name="ln107">  } else {</a>
+<a name="ln108">    return S_ISDIR(request.statbuf.st_mode);</a>
+<a name="ln109">  }</a>
+<a name="ln110">}</a>
+<a name="ln111"> </a>
+<a name="ln112">/// Check if the given path is a directory or not.</a>
+<a name="ln113">///</a>
+<a name="ln114">/// @return `true` if `name` is a directory.</a>
+<a name="ln115">bool os_isdir(const char_u *name)</a>
+<a name="ln116">  FUNC_ATTR_NONNULL_ALL</a>
+<a name="ln117">{</a>
+<a name="ln118">  int32_t mode = os_getperm((const char *)name);</a>
+<a name="ln119">  if (mode &lt; 0) {</a>
+<a name="ln120">    return false;</a>
+<a name="ln121">  }</a>
+<a name="ln122"> </a>
+<a name="ln123">  if (!S_ISDIR(mode)) {</a>
+<a name="ln124">    return false;</a>
+<a name="ln125">  }</a>
+<a name="ln126"> </a>
+<a name="ln127">  return true;</a>
+<a name="ln128">}</a>
+<a name="ln129"> </a>
+<a name="ln130">/// Check if the given path is a directory and is executable.</a>
+<a name="ln131">/// Gives the same results as `os_isdir()` on Windows.</a>
+<a name="ln132">///</a>
+<a name="ln133">/// @return `true` if `name` is a directory and executable.</a>
+<a name="ln134">bool os_isdir_executable(const char *name)</a>
+<a name="ln135">  FUNC_ATTR_NONNULL_ALL</a>
+<a name="ln136">{</a>
+<a name="ln137">  int32_t mode = os_getperm((const char *)name);</a>
+<a name="ln138">  if (mode &lt; 0) {</a>
+<a name="ln139">    return false;</a>
+<a name="ln140">  }</a>
+<a name="ln141"> </a>
+<a name="ln142">#ifdef WIN32</a>
+<a name="ln143">  return (S_ISDIR(mode));</a>
+<a name="ln144">#else</a>
+<a name="ln145">  return (S_ISDIR(mode) &amp;&amp; (S_IXUSR &amp; mode));</a>
+<a name="ln146">#endif</a>
+<a name="ln147">}</a>
+<a name="ln148"> </a>
+<a name="ln149">/// Check what `name` is:</a>
+<a name="ln150">/// @return NODE_NORMAL: file or directory (or doesn't exist)</a>
+<a name="ln151">///         NODE_WRITABLE: writable device, socket, fifo, etc.</a>
+<a name="ln152">///         NODE_OTHER: non-writable things</a>
+<a name="ln153">int os_nodetype(const char *name)</a>
+<a name="ln154">  FUNC_ATTR_NONNULL_ALL</a>
+<a name="ln155">{</a>
+<a name="ln156">#ifndef WIN32  // Unix</a>
+<a name="ln157">  uv_stat_t statbuf;</a>
+<a name="ln158">  if (0 != os_stat(name, &amp;statbuf)) {</a>
+<a name="ln159">    return NODE_NORMAL;  // File doesn't exist.</a>
+<a name="ln160">  }</a>
+<a name="ln161">  // uv_handle_type does not distinguish BLK and DIR.</a>
+<a name="ln162">  //    Related: https://github.com/joyent/libuv/pull/1421</a>
+<a name="ln163">  if (S_ISREG(statbuf.st_mode) || S_ISDIR(statbuf.st_mode)) {</a>
+<a name="ln164">    return NODE_NORMAL;</a>
+<a name="ln165">  }</a>
+<a name="ln166">  if (S_ISBLK(statbuf.st_mode)) {  // block device isn't writable</a>
+<a name="ln167">    return NODE_OTHER;</a>
+<a name="ln168">  }</a>
+<a name="ln169">  // Everything else is writable?</a>
+<a name="ln170">  // buf_write() expects NODE_WRITABLE for char device /dev/stderr.</a>
+<a name="ln171">  return NODE_WRITABLE;</a>
+<a name="ln172">#else  // Windows</a>
+<a name="ln173">  // Edge case from Vim os_win32.c:</a>
+<a name="ln174">  // We can't open a file with a name &quot;\\.\con&quot; or &quot;\\.\prn&quot;, trying to read</a>
+<a name="ln175">  // from it later will cause Vim to hang. Thus return NODE_WRITABLE here.</a>
+<a name="ln176">  if (STRNCMP(name, &quot;\\\\.\\&quot;, 4) == 0) {</a>
+<a name="ln177">    return NODE_WRITABLE;</a>
+<a name="ln178">  }</a>
+<a name="ln179"> </a>
+<a name="ln180">  // Vim os_win32.c:mch_nodetype does (since 7.4.015):</a>
+<a name="ln181">  //    wn = enc_to_utf16(name, NULL);</a>
+<a name="ln182">  //    hFile = CreatFile(wn, ...)</a>
+<a name="ln183">  // to get a HANDLE. Whereas libuv just calls _get_osfhandle() on the fd we</a>
+<a name="ln184">  // give it. But uv_fs_open later calls fs__capture_path which does a similar</a>
+<a name="ln185">  // utf8-to-utf16 dance and saves us the hassle.</a>
+<a name="ln186"> </a>
+<a name="ln187">  // macOS: os_open(/dev/stderr) would return UV_EACCES.</a>
+<a name="ln188">  int fd = os_open(name, O_RDONLY</a>
+<a name="ln189"># ifdef O_NONBLOCK</a>
+<a name="ln190">                   | O_NONBLOCK</a>
+<a name="ln191"># endif</a>
+<a name="ln192">                   , 0);</a>
+<a name="ln193">  if (fd &lt; 0) {  // open() failed.</a>
+<a name="ln194">    return NODE_NORMAL;</a>
+<a name="ln195">  }</a>
+<a name="ln196">  int guess = uv_guess_handle(fd);</a>
+<a name="ln197">  if (close(fd) == -1) {</a>
+<a name="ln198">    ELOG(&quot;close(%d) failed. name='%s'&quot;, fd, name);</a>
+<a name="ln199">  }</a>
+<a name="ln200"> </a>
+<a name="ln201">  switch (guess) {</a>
+<a name="ln202">    case UV_TTY:          // FILE_TYPE_CHAR</a>
+<a name="ln203">      return NODE_WRITABLE;</a>
+<a name="ln204">    case UV_FILE:         // FILE_TYPE_DISK</a>
+<a name="ln205">      return NODE_NORMAL;</a>
+<a name="ln206">    case UV_NAMED_PIPE:   // not handled explicitly in Vim os_win32.c</a>
+<a name="ln207">    case UV_UDP:          // unix only</a>
+<a name="ln208">    case UV_TCP:          // unix only</a>
+<a name="ln209">    case UV_UNKNOWN_HANDLE:</a>
+<a name="ln210">    default:</a>
+<a name="ln211">      return NODE_OTHER;  // Vim os_win32.c default</a>
+<a name="ln212">  }</a>
+<a name="ln213">#endif</a>
+<a name="ln214">}</a>
+<a name="ln215"> </a>
+<a name="ln216">/// Gets the absolute path of the currently running executable.</a>
+<a name="ln217">/// May fail if procfs is missing. #6734</a>
+<a name="ln218">/// @see path_exepath</a>
+<a name="ln219">///</a>
+<a name="ln220">/// @param[out] buffer Full path to the executable.</a>
+<a name="ln221">/// @param[in]  size   Size of `buffer`.</a>
+<a name="ln222">///</a>
+<a name="ln223">/// @return 0 on success, or libuv error code.</a>
+<a name="ln224">int os_exepath(char *buffer, size_t *size)</a>
+<a name="ln225">  FUNC_ATTR_NONNULL_ALL</a>
+<a name="ln226">{</a>
+<a name="ln227">  return uv_exepath(buffer, size);</a>
+<a name="ln228">}</a>
+<a name="ln229"> </a>
+<a name="ln230">/// Checks if the file `name` is executable.</a>
+<a name="ln231">///</a>
+<a name="ln232">/// @param[in]  name     Filename to check.</a>
+<a name="ln233">/// @param[out,allocated] abspath  Returns resolved exe path, if not NULL.</a>
+<a name="ln234">/// @param[in] use_path  Also search $PATH.</a>
+<a name="ln235">///</a>
+<a name="ln236">/// @return true if `name` is executable and</a>
+<a name="ln237">///   - can be found in $PATH,</a>
+<a name="ln238">///   - is relative to current dir or</a>
+<a name="ln239">///   - is absolute.</a>
+<a name="ln240">///</a>
+<a name="ln241">/// @return `false` otherwise.</a>
+<a name="ln242">bool os_can_exe(const char *name, char **abspath, bool use_path)</a>
+<a name="ln243">  FUNC_ATTR_NONNULL_ARG(1)</a>
+<a name="ln244">{</a>
+<a name="ln245">  if (!use_path || gettail_dir(name) != name) {</a>
+<a name="ln246">#ifdef WIN32</a>
+<a name="ln247">    if (is_executable_ext(name, abspath)) {</a>
+<a name="ln248">#else</a>
+<a name="ln249">    // Must have path separator, cannot execute files in the current directory.</a>
+<a name="ln250">    if ((use_path || gettail_dir(name) != name)</a>
+<a name="ln251">        &amp;&amp; is_executable(name, abspath)) {</a>
+<a name="ln252">#endif</a>
+<a name="ln253">      return true;</a>
+<a name="ln254">    } else {</a>
+<a name="ln255">      return false;</a>
+<a name="ln256">    }</a>
+<a name="ln257">  }</a>
+<a name="ln258"> </a>
+<a name="ln259">  return is_executable_in_path(name, abspath);</a>
+<a name="ln260">}</a>
+<a name="ln261"> </a>
+<a name="ln262">/// Returns true if `name` is an executable file.</a>
+<a name="ln263">///</a>
+<a name="ln264">/// @param[in]            name     Filename to check.</a>
+<a name="ln265">/// @param[out,allocated] abspath  Returns full exe path, if not NULL.</a>
+<a name="ln266">static bool is_executable(const char *name, char **abspath)</a>
+<a name="ln267">  FUNC_ATTR_NONNULL_ARG(1)</a>
+<a name="ln268">{</a>
+<a name="ln269">  int32_t mode = os_getperm(name);</a>
+<a name="ln270"> </a>
+<a name="ln271">  if (mode &lt; 0) {</a>
+<a name="ln272">    return false;</a>
+<a name="ln273">  }</a>
+<a name="ln274"> </a>
+<a name="ln275">#ifdef WIN32</a>
+<a name="ln276">  // Windows does not have exec bit; just check if the file exists and is not</a>
+<a name="ln277">  // a directory.</a>
+<a name="ln278">  const bool ok = S_ISREG(mode);</a>
+<a name="ln279">#else</a>
+<a name="ln280">  int r = -1;</a>
+<a name="ln281">  if (S_ISREG(mode)) {</a>
+<a name="ln282">    RUN_UV_FS_FUNC(r, uv_fs_access, name, X_OK, NULL);</a>
+<a name="ln283">  }</a>
+<a name="ln284">  const bool ok = (r == 0);</a>
+<a name="ln285">#endif</a>
+<a name="ln286">  if (ok &amp;&amp; abspath != NULL) {</a>
+<a name="ln287">    *abspath = save_abs_path(name);</a>
+<a name="ln288">  }</a>
+<a name="ln289">  return ok;</a>
+<a name="ln290">}</a>
+<a name="ln291"> </a>
+<a name="ln292">#ifdef WIN32</a>
+<a name="ln293">/// Checks if file `name` is executable under any of these conditions:</a>
+<a name="ln294">/// - extension is in $PATHEXT and `name` is executable</a>
+<a name="ln295">/// - result of any $PATHEXT extension appended to `name` is executable</a>
+<a name="ln296">static bool is_executable_ext(const char *name, char **abspath)</a>
+<a name="ln297">  FUNC_ATTR_NONNULL_ARG(1)</a>
+<a name="ln298">{</a>
+<a name="ln299">  const bool is_unix_shell = strstr((char *)path_tail(p_sh), &quot;sh&quot;) != NULL;</a>
+<a name="ln300">  char *nameext = strrchr(name, '.');</a>
+<a name="ln301">  size_t nameext_len = nameext ? strlen(nameext) : 0;</a>
+<a name="ln302">  xstrlcpy(os_buf, name, sizeof(os_buf));</a>
+<a name="ln303">  char *buf_end = xstrchrnul(os_buf, '\0');</a>
+<a name="ln304">  const char *pathext = os_getenv(&quot;PATHEXT&quot;);</a>
+<a name="ln305">  if (!pathext) {</a>
+<a name="ln306">    pathext = &quot;.com;.exe;.bat;.cmd&quot;;</a>
+<a name="ln307">  }</a>
+<a name="ln308">  const char *ext = pathext;</a>
+<a name="ln309">  while (*ext) {</a>
+<a name="ln310">    // If $PATHEXT itself contains dot:</a>
+<a name="ln311">    if (ext[0] == '.' &amp;&amp; (ext[1] == '\0' || ext[1] == ENV_SEPCHAR)) {</a>
+<a name="ln312">      if (is_executable(name, abspath)) {</a>
+<a name="ln313">        return true;</a>
+<a name="ln314">      }</a>
+<a name="ln315">      // Skip it.</a>
+<a name="ln316">      ext++;</a>
+<a name="ln317">      if (*ext) {</a>
+<a name="ln318">        ext++;</a>
+<a name="ln319">      }</a>
+<a name="ln320">      continue;</a>
+<a name="ln321">    }</a>
+<a name="ln322"> </a>
+<a name="ln323">    const char *ext_end = ext;</a>
+<a name="ln324">    size_t ext_len =</a>
+<a name="ln325">      copy_option_part((char_u **)&amp;ext_end, (char_u *)buf_end,</a>
+<a name="ln326">                       sizeof(os_buf) - (size_t)(buf_end - os_buf), ENV_SEPSTR);</a>
+<a name="ln327">    if (ext_len != 0) {</a>
+<a name="ln328">      bool in_pathext = nameext_len == ext_len</a>
+<a name="ln329">        &amp;&amp; 0 == mb_strnicmp((char_u *)nameext, (char_u *)ext, ext_len);</a>
+<a name="ln330"> </a>
+<a name="ln331">      if (((in_pathext || is_unix_shell) &amp;&amp; is_executable(name, abspath))</a>
+<a name="ln332">          || is_executable(os_buf, abspath)) {</a>
+<a name="ln333">        return true;</a>
+<a name="ln334">      }</a>
+<a name="ln335">    }</a>
+<a name="ln336">    ext = ext_end;</a>
+<a name="ln337">  }</a>
+<a name="ln338">  return false;</a>
+<a name="ln339">}</a>
+<a name="ln340">#endif</a>
+<a name="ln341"> </a>
+<a name="ln342">/// Checks if a file is in `$PATH` and is executable.</a>
+<a name="ln343">///</a>
+<a name="ln344">/// @param[in]  name  Filename to check.</a>
+<a name="ln345">/// @param[out] abspath  Returns resolved executable path, if not NULL.</a>
+<a name="ln346">///</a>
+<a name="ln347">/// @return `true` if `name` is an executable inside `$PATH`.</a>
+<a name="ln348">static bool is_executable_in_path(const char *name, char **abspath)</a>
+<a name="ln349">  FUNC_ATTR_NONNULL_ARG(1)</a>
+<a name="ln350">{</a>
+<a name="ln351">  const char *path_env = os_getenv(&quot;PATH&quot;);</a>
+<a name="ln352">  if (path_env == NULL) {</a>
+<a name="ln353">    return false;</a>
+<a name="ln354">  }</a>
+<a name="ln355"> </a>
+<a name="ln356">#ifdef WIN32</a>
+<a name="ln357">  // Prepend &quot;.;&quot; to $PATH.</a>
+<a name="ln358">  size_t pathlen = strlen(path_env);</a>
+<a name="ln359">  char *path = memcpy(xmallocz(pathlen + 2), &quot;.&quot; ENV_SEPSTR, 2);</a>
+<a name="ln360">  memcpy(path + 2, path_env, pathlen);</a>
+<a name="ln361">#else</a>
+<a name="ln362">  char *path = xstrdup(path_env);</a>
+<a name="ln363">#endif</a>
+<a name="ln364"> </a>
+<a name="ln365">  size_t buf_len = strlen(name) + strlen(path) + 2;</a>
+<a name="ln366">  char *buf = xmalloc(buf_len);</a>
+<a name="ln367"> </a>
+<a name="ln368">  // Walk through all entries in $PATH to check if &quot;name&quot; exists there and</a>
+<a name="ln369">  // is an executable file.</a>
+<a name="ln370">  char *p = path;</a>
+<a name="ln371">  bool rv = false;</a>
+<a name="ln372">  for (;; ) {</a>
+<a name="ln373">    char *e = xstrchrnul(p, ENV_SEPCHAR);</a>
+<a name="ln374"> </a>
+<a name="ln375">    // Combine the $PATH segment with `name`.</a>
+<a name="ln376">    STRLCPY(buf, p, e - p + 1);</a>
+<a name="ln377">    append_path(buf, name, buf_len);</a>
+<a name="ln378"> </a>
+<a name="ln379">#ifdef WIN32</a>
+<a name="ln380">    if (is_executable_ext(buf, abspath)) {</a>
+<a name="ln381">#else</a>
+<a name="ln382">    if (is_executable(buf, abspath)) {</a>
+<a name="ln383">#endif</a>
+<a name="ln384">      rv = true;</a>
+<a name="ln385">      goto end;</a>
+<a name="ln386">    }</a>
+<a name="ln387"> </a>
+<a name="ln388">    if (*e != ENV_SEPCHAR) {</a>
+<a name="ln389">      // End of $PATH without finding any executable called name.</a>
+<a name="ln390">      goto end;</a>
+<a name="ln391">    }</a>
+<a name="ln392"> </a>
+<a name="ln393">    p = e + 1;</a>
+<a name="ln394">  }</a>
+<a name="ln395"> </a>
+<a name="ln396">end:</a>
+<a name="ln397">  xfree(buf);</a>
+<a name="ln398">  xfree(path);</a>
+<a name="ln399">  return rv;</a>
+<a name="ln400">}</a>
+<a name="ln401"> </a>
+<a name="ln402">/// Opens or creates a file and returns a non-negative integer representing</a>
+<a name="ln403">/// the lowest-numbered unused file descriptor, for use in subsequent system</a>
+<a name="ln404">/// calls (read, write, lseek, fcntl, etc.). If the operation fails, a libuv</a>
+<a name="ln405">/// error code is returned, and no file is created or modified.</a>
+<a name="ln406">///</a>
+<a name="ln407">/// @param path Filename</a>
+<a name="ln408">/// @param flags Bitwise OR of flags defined in &lt;fcntl.h&gt;</a>
+<a name="ln409">/// @param mode Permissions for the newly-created file (IGNORED if 'flags' is</a>
+<a name="ln410">///        not `O_CREAT` or `O_TMPFILE`), subject to the current umask</a>
+<a name="ln411">/// @return file descriptor, or negative error code on failure</a>
+<a name="ln412">int os_open(const char *path, int flags, int mode)</a>
+<a name="ln413">{</a>
+<a name="ln414">  if (path == NULL) {  // uv_fs_open asserts on NULL. #7561</a>
+<a name="ln415">    return UV_EINVAL;</a>
+<a name="ln416">  }</a>
+<a name="ln417">  int r;</a>
+<a name="ln418">  RUN_UV_FS_FUNC(r, uv_fs_open, path, flags, mode, NULL);</a>
+<a name="ln419">  return r;</a>
+<a name="ln420">}</a>
+<a name="ln421"> </a>
+<a name="ln422">/// Compatibility wrapper conforming to fopen(3).</a>
+<a name="ln423">///</a>
+<a name="ln424">/// Windows: works with UTF-16 filepaths by delegating to libuv (os_open).</a>
+<a name="ln425">///</a>
+<a name="ln426">/// Future: remove this, migrate callers to os/fileio.c ?</a>
+<a name="ln427">///         But file_open_fd does not support O_RDWR yet.</a>
+<a name="ln428">///</a>
+<a name="ln429">/// @param path  Filename</a>
+<a name="ln430">/// @param flags  String flags, one of { r w a r+ w+ a+ rb wb ab }</a>
+<a name="ln431">/// @return FILE pointer, or NULL on error.</a>
+<a name="ln432">FILE *os_fopen(const char *path, const char *flags)</a>
+<a name="ln433">{</a>
+<a name="ln434">  assert(flags != NULL &amp;&amp; strlen(flags) &gt; 0 &amp;&amp; strlen(flags) &lt;= 2);</a>
+<a name="ln435">  int iflags = 0;</a>
+<a name="ln436">  // Per table in fopen(3) manpage.</a>
+<a name="ln437">  if (flags[1] == '\0' || flags[1] == 'b') {</a>
+<a name="ln438">    switch (flags[0]) {</a>
+<a name="ln439">      case 'r':</a>
+<a name="ln440">        iflags = O_RDONLY;</a>
+<a name="ln441">        break;</a>
+<a name="ln442">      case 'w':</a>
+<a name="ln443">        iflags = O_WRONLY | O_CREAT | O_TRUNC;</a>
+<a name="ln444">        break;</a>
+<a name="ln445">      case 'a':</a>
+<a name="ln446">        iflags = O_WRONLY | O_CREAT | O_APPEND;</a>
+<a name="ln447">        break;</a>
+<a name="ln448">      default:</a>
+<a name="ln449">        abort();</a>
+<a name="ln450">    }</a>
+<a name="ln451">#ifdef WIN32</a>
+<a name="ln452">    if (flags[1] == 'b') {</a>
+<a name="ln453">      iflags |= O_BINARY;</a>
+<a name="ln454">    }</a>
+<a name="ln455">#endif</a>
+<a name="ln456">  } else {</a>
+<a name="ln457">    // char 0 must be one of ('r','w','a').</a>
+<a name="ln458">    // char 1 is always '+' ('b' is handled above).</a>
+<a name="ln459">    assert(flags[1] == '+');</a>
+<a name="ln460">    switch (flags[0]) {</a>
+<a name="ln461">      case 'r':</a>
+<a name="ln462">        iflags = O_RDWR;</a>
+<a name="ln463">        break;</a>
+<a name="ln464">      case 'w':</a>
+<a name="ln465">        iflags = O_RDWR | O_CREAT | O_TRUNC;</a>
+<a name="ln466">        break;</a>
+<a name="ln467">      case 'a':</a>
+<a name="ln468">        iflags = O_RDWR | O_CREAT | O_APPEND;</a>
+<a name="ln469">        break;</a>
+<a name="ln470">      default:</a>
+<a name="ln471">        abort();</a>
+<a name="ln472">    }</a>
+<a name="ln473">  }</a>
+<a name="ln474">  // Per open(2) manpage.</a>
+<a name="ln475">  assert((iflags|O_RDONLY) || (iflags|O_WRONLY) || (iflags|O_RDWR));</a>
+<a name="ln476">  // Per fopen(3) manpage: default to 0666, it will be umask-adjusted.</a>
+<a name="ln477">  int fd = os_open(path, iflags, 0666);</a>
+<a name="ln478">  if (fd &lt; 0) {</a>
+<a name="ln479">    return NULL;</a>
+<a name="ln480">  }</a>
+<a name="ln481">  return fdopen(fd, flags);</a>
+<a name="ln482">}</a>
+<a name="ln483"> </a>
+<a name="ln484">/// Sets file descriptor `fd` to close-on-exec.</a>
+<a name="ln485">//</a>
+<a name="ln486">// @return -1 if failed to set, 0 otherwise.</a>
+<a name="ln487">int os_set_cloexec(const int fd)</a>
+<a name="ln488">{</a>
+<a name="ln489">#ifdef HAVE_FD_CLOEXEC</a>
+<a name="ln490">  int e;</a>
+<a name="ln491">  int fdflags = fcntl(fd, F_GETFD);</a>
+<a name="ln492">  if (fdflags &lt; 0) {</a>
+<a name="ln493">    e = errno;</a>
+<a name="ln494">    ELOG(&quot;Failed to get flags on descriptor %d: %s&quot;, fd, strerror(e));</a>
+<a name="ln495">    errno = e;</a>
+<a name="ln496">    return -1;</a>
+<a name="ln497">  }</a>
+<a name="ln498">  if ((fdflags &amp; FD_CLOEXEC) == 0</a>
+<a name="ln499">      &amp;&amp; fcntl(fd, F_SETFD, fdflags | FD_CLOEXEC) == -1) {</a>
+<a name="ln500">    e = errno;</a>
+<a name="ln501">    ELOG(&quot;Failed to set CLOEXEC on descriptor %d: %s&quot;, fd, strerror(e));</a>
+<a name="ln502">    errno = e;</a>
+<a name="ln503">    return -1;</a>
+<a name="ln504">  }</a>
+<a name="ln505">  return 0;</a>
+<a name="ln506">#endif</a>
+<a name="ln507"> </a>
+<a name="ln508">  // No FD_CLOEXEC flag. On Windows, the file should have been opened with</a>
+<a name="ln509">  // O_NOINHERIT anyway.</a>
+<a name="ln510">  return -1;</a>
+<a name="ln511">}</a>
+<a name="ln512"> </a>
+<a name="ln513">/// Close a file</a>
+<a name="ln514">///</a>
+<a name="ln515">/// @return 0 or libuv error code on failure.</a>
+<a name="ln516">int os_close(const int fd)</a>
+<a name="ln517">{</a>
+<a name="ln518">  int r;</a>
+<a name="ln519">  RUN_UV_FS_FUNC(r, uv_fs_close, fd, NULL);</a>
+<a name="ln520">  return r;</a>
+<a name="ln521">}</a>
+<a name="ln522"> </a>
+<a name="ln523">/// Duplicate file descriptor</a>
+<a name="ln524">///</a>
+<a name="ln525">/// @param[in]  fd  File descriptor to duplicate.</a>
+<a name="ln526">///</a>
+<a name="ln527">/// @return New file descriptor or libuv error code (&lt; 0).</a>
+<a name="ln528">int os_dup(const int fd)</a>
+<a name="ln529">  FUNC_ATTR_WARN_UNUSED_RESULT</a>
+<a name="ln530">{</a>
+<a name="ln531">  int ret;</a>
+<a name="ln532">os_dup_dup:</a>
+<a name="ln533">  ret = dup(fd);</a>
+<a name="ln534">  if (ret &lt; 0) {</a>
+<a name="ln535">    const int error = os_translate_sys_error(errno);</a>
+<a name="ln536">    errno = 0;</a>
+<a name="ln537">    if (error == UV_EINTR) {</a>
+<a name="ln538">      goto os_dup_dup;</a>
+<a name="ln539">    } else {</a>
+<a name="ln540">      return error;</a>
+<a name="ln541">    }</a>
+<a name="ln542">  }</a>
+<a name="ln543">  return ret;</a>
+<a name="ln544">}</a>
+<a name="ln545"> </a>
+<a name="ln546">/// Read from a file</a>
+<a name="ln547">///</a>
+<a name="ln548">/// Handles EINTR and ENOMEM, but not other errors.</a>
+<a name="ln549">///</a>
+<a name="ln550">/// @param[in]  fd  File descriptor to read from.</a>
+<a name="ln551">/// @param[out]  ret_eof  Is set to true if EOF was encountered, otherwise set</a>
+<a name="ln552">///                       to false. Initial value is ignored.</a>
+<a name="ln553">/// @param[out]  ret_buf  Buffer to write to. May be NULL if size is zero.</a>
+<a name="ln554">/// @param[in]  size  Amount of bytes to read.</a>
+<a name="ln555">/// @param[in]  non_blocking  Do not restart syscall if EAGAIN was encountered.</a>
+<a name="ln556">///</a>
+<a name="ln557">/// @return Number of bytes read or libuv error code (&lt; 0).</a>
+<a name="ln558">ptrdiff_t os_read(const int fd, bool *const ret_eof, char *const ret_buf,</a>
+<a name="ln559">                  const size_t size, const bool non_blocking)</a>
+<a name="ln560">  FUNC_ATTR_WARN_UNUSED_RESULT</a>
+<a name="ln561">{</a>
+<a name="ln562">  *ret_eof = false;</a>
+<a name="ln563">  if (ret_buf == NULL) {</a>
+<a name="ln564">    assert(size == 0);</a>
+<a name="ln565">    return 0;</a>
+<a name="ln566">  }</a>
+<a name="ln567">  size_t read_bytes = 0;</a>
+<a name="ln568">  bool did_try_to_free = false;</a>
+<a name="ln569">  while (read_bytes != size) {</a>
+<a name="ln570">    assert(size &gt;= read_bytes);</a>
+<a name="ln571">    const ptrdiff_t cur_read_bytes = read(fd, ret_buf + read_bytes,</a>
+<a name="ln572">                                          IO_COUNT(size - read_bytes));</a>
+<a name="ln573">    if (cur_read_bytes &gt; 0) {</a>
+<a name="ln574">      read_bytes += (size_t)cur_read_bytes;</a>
+<a name="ln575">    }</a>
+<a name="ln576">    if (cur_read_bytes &lt; 0) {</a>
+<a name="ln577">      const int error = os_translate_sys_error(errno);</a>
+<a name="ln578">      errno = 0;</a>
+<a name="ln579">      if (non_blocking &amp;&amp; error == UV_EAGAIN) {</a>
+<a name="ln580">        break;</a>
+<a name="ln581">      } else if (error == UV_EINTR || error == UV_EAGAIN) {</a>
+<a name="ln582">        continue;</a>
+<a name="ln583">      } else if (error == UV_ENOMEM &amp;&amp; !did_try_to_free) {</a>
+<a name="ln584">        try_to_free_memory();</a>
+<a name="ln585">        did_try_to_free = true;</a>
+<a name="ln586">        continue;</a>
+<a name="ln587">      } else {</a>
+<a name="ln588">        return (ptrdiff_t)error;</a>
+<a name="ln589">      }</a>
+<a name="ln590">    }</a>
+<a name="ln591">    if (cur_read_bytes == 0) {</a>
+<a name="ln592">      *ret_eof = true;</a>
+<a name="ln593">      break;</a>
+<a name="ln594">    }</a>
+<a name="ln595">  }</a>
+<a name="ln596">  return (ptrdiff_t)read_bytes;</a>
+<a name="ln597">}</a>
+<a name="ln598"> </a>
+<a name="ln599">#ifdef HAVE_READV</a>
+<a name="ln600">/// Read from a file to multiple buffers at once</a>
+<a name="ln601">///</a>
+<a name="ln602">/// Wrapper for readv().</a>
+<a name="ln603">///</a>
+<a name="ln604">/// @param[in]  fd  File descriptor to read from.</a>
+<a name="ln605">/// @param[out]  ret_eof  Is set to true if EOF was encountered, otherwise set</a>
+<a name="ln606">///                       to false. Initial value is ignored.</a>
+<a name="ln607">/// @param[out]  iov  Description of buffers to write to. Note: this description</a>
+<a name="ln608">///                   may change, it is incorrect to use data it points to after</a>
+<a name="ln609">///                   os_readv().</a>
+<a name="ln610">/// @param[in]  iov_size  Number of buffers in iov.</a>
+<a name="ln611">/// @param[in]  non_blocking  Do not restart syscall if EAGAIN was encountered.</a>
+<a name="ln612">///</a>
+<a name="ln613">/// @return Number of bytes read or libuv error code (&lt; 0).</a>
+<a name="ln614">ptrdiff_t os_readv(const int fd, bool *const ret_eof, struct iovec *iov,</a>
+<a name="ln615">                   size_t iov_size, const bool non_blocking)</a>
+<a name="ln616">  FUNC_ATTR_NONNULL_ALL</a>
+<a name="ln617">{</a>
+<a name="ln618">  *ret_eof = false;</a>
+<a name="ln619">  size_t read_bytes = 0;</a>
+<a name="ln620">  bool did_try_to_free = false;</a>
+<a name="ln621">  size_t toread = 0;</a>
+<a name="ln622">  for (size_t i = 0; i &lt; iov_size; i++) {</a>
+<a name="ln623">    // Overflow, trying to read too much data</a>
+<a name="ln624">    assert(toread &lt;= SIZE_MAX - iov[i].iov_len);</a>
+<a name="ln625">    toread += iov[i].iov_len;</a>
+<a name="ln626">  }</a>
+<a name="ln627">  while (read_bytes &lt; toread &amp;&amp; iov_size &amp;&amp; !*ret_eof) {</a>
+<a name="ln628">    ptrdiff_t cur_read_bytes = readv(fd, iov, (int)iov_size);</a>
+<a name="ln629">    if (cur_read_bytes == 0) {</a>
+<a name="ln630">      *ret_eof = true;</a>
+<a name="ln631">    }</a>
+<a name="ln632">    if (cur_read_bytes &gt; 0) {</a>
+<a name="ln633">      read_bytes += (size_t)cur_read_bytes;</a>
+<a name="ln634">      while (iov_size &amp;&amp; cur_read_bytes) {</a>
+<a name="ln635">        if (cur_read_bytes &lt; (ptrdiff_t)iov-&gt;iov_len) {</a>
+<a name="ln636">          iov-&gt;iov_len -= (size_t)cur_read_bytes;</a>
+<a name="ln637">          iov-&gt;iov_base = (char *)iov-&gt;iov_base + cur_read_bytes;</a>
+<a name="ln638">          cur_read_bytes = 0;</a>
+<a name="ln639">        } else {</a>
+<a name="ln640">          cur_read_bytes -= (ptrdiff_t)iov-&gt;iov_len;</a>
+<a name="ln641">          iov_size--;</a>
+<a name="ln642">          iov++;</a>
+<a name="ln643">        }</a>
+<a name="ln644">      }</a>
+<a name="ln645">    } else if (cur_read_bytes &lt; 0) {</a>
+<a name="ln646">      const int error = os_translate_sys_error(errno);</a>
+<a name="ln647">      errno = 0;</a>
+<a name="ln648">      if (non_blocking &amp;&amp; error == UV_EAGAIN) {</a>
+<a name="ln649">        break;</a>
+<a name="ln650">      } else if (error == UV_EINTR || error == UV_EAGAIN) {</a>
+<a name="ln651">        continue;</a>
+<a name="ln652">      } else if (error == UV_ENOMEM &amp;&amp; !did_try_to_free) {</a>
+<a name="ln653">        try_to_free_memory();</a>
+<a name="ln654">        did_try_to_free = true;</a>
+<a name="ln655">        continue;</a>
+<a name="ln656">      } else {</a>
+<a name="ln657">        return (ptrdiff_t)error;</a>
+<a name="ln658">      }</a>
+<a name="ln659">    }</a>
+<a name="ln660">  }</a>
+<a name="ln661">  return (ptrdiff_t)read_bytes;</a>
+<a name="ln662">}</a>
+<a name="ln663">#endif  // HAVE_READV</a>
+<a name="ln664"> </a>
+<a name="ln665">/// Write to a file</a>
+<a name="ln666">///</a>
+<a name="ln667">/// @param[in]  fd  File descriptor to write to.</a>
+<a name="ln668">/// @param[in]  buf  Data to write. May be NULL if size is zero.</a>
+<a name="ln669">/// @param[in]  size  Amount of bytes to write.</a>
+<a name="ln670">/// @param[in]  non_blocking  Do not restart syscall if EAGAIN was encountered.</a>
+<a name="ln671">///</a>
+<a name="ln672">/// @return Number of bytes written or libuv error code (&lt; 0).</a>
+<a name="ln673">ptrdiff_t os_write(const int fd, const char *const buf, const size_t size,</a>
+<a name="ln674">                   const bool non_blocking)</a>
+<a name="ln675">  FUNC_ATTR_WARN_UNUSED_RESULT</a>
+<a name="ln676">{</a>
+<a name="ln677">  if (buf == NULL) {</a>
+<a name="ln678">    assert(size == 0);</a>
+<a name="ln679">    return 0;</a>
+<a name="ln680">  }</a>
+<a name="ln681">  size_t written_bytes = 0;</a>
+<a name="ln682">  while (written_bytes != size) {</a>
+<a name="ln683">    assert(size &gt;= written_bytes);</a>
+<a name="ln684">    const ptrdiff_t cur_written_bytes = write(fd, buf + written_bytes,</a>
+<a name="ln685">                                              IO_COUNT(size - written_bytes));</a>
+<a name="ln686">    if (cur_written_bytes &gt; 0) {</a>
+<a name="ln687">      written_bytes += (size_t)cur_written_bytes;</a>
+<a name="ln688">    }</a>
+<a name="ln689">    if (cur_written_bytes &lt; 0) {</a>
+<a name="ln690">      const int error = os_translate_sys_error(errno);</a>
+<a name="ln691">      errno = 0;</a>
+<a name="ln692">      if (non_blocking &amp;&amp; error == UV_EAGAIN) {</a>
+<a name="ln693">        break;</a>
+<a name="ln694">      } else if (error == UV_EINTR || error == UV_EAGAIN) {</a>
+<a name="ln695">        continue;</a>
+<a name="ln696">      } else {</a>
+<a name="ln697">        return error;</a>
+<a name="ln698">      }</a>
+<a name="ln699">    }</a>
+<a name="ln700">    if (cur_written_bytes == 0) {</a>
+<a name="ln701">      return UV_UNKNOWN;</a>
+<a name="ln702">    }</a>
+<a name="ln703">  }</a>
+<a name="ln704">  return (ptrdiff_t)written_bytes;</a>
+<a name="ln705">}</a>
+<a name="ln706"> </a>
+<a name="ln707">/// Copies a file from `path` to `new_path`.</a>
+<a name="ln708">///</a>
+<a name="ln709">/// @see http://docs.libuv.org/en/v1.x/fs.html#c.uv_fs_copyfile</a>
+<a name="ln710">///</a>
+<a name="ln711">/// @param path Path of file to be copied</a>
+<a name="ln712">/// @param path_new Path of new file</a>
+<a name="ln713">/// @param flags Bitwise OR of flags defined in &lt;uv.h&gt;</a>
+<a name="ln714">/// @return 0 on success, or libuv error code on failure.</a>
+<a name="ln715">int os_copy(const char *path, const char *new_path, int flags)</a>
+<a name="ln716">{</a>
+<a name="ln717">  int r;</a>
+<a name="ln718">  RUN_UV_FS_FUNC(r, uv_fs_copyfile, path, new_path, flags, NULL);</a>
+<a name="ln719">  return r;</a>
+<a name="ln720">}</a>
+<a name="ln721"> </a>
+<a name="ln722">/// Flushes file modifications to disk.</a>
+<a name="ln723">///</a>
+<a name="ln724">/// @param fd the file descriptor of the file to flush to disk.</a>
+<a name="ln725">///</a>
+<a name="ln726">/// @return 0 on success, or libuv error code on failure.</a>
+<a name="ln727">int os_fsync(int fd)</a>
+<a name="ln728">{</a>
+<a name="ln729">  int r;</a>
+<a name="ln730">  RUN_UV_FS_FUNC(r, uv_fs_fsync, fd, NULL);</a>
+<a name="ln731">  g_stats.fsync++;</a>
+<a name="ln732">  return r;</a>
+<a name="ln733">}</a>
+<a name="ln734"> </a>
+<a name="ln735">/// Get stat information for a file.</a>
+<a name="ln736">///</a>
+<a name="ln737">/// @return libuv return code, or -errno</a>
+<a name="ln738">static int os_stat(const char *name, uv_stat_t *statbuf)</a>
+<a name="ln739">  FUNC_ATTR_NONNULL_ARG(2)</a>
+<a name="ln740">{</a>
+<a name="ln741">  if (!name) {</a>
+<a name="ln742">    return UV_EINVAL;</a>
+<a name="ln743">  }</a>
+<a name="ln744">  uv_fs_t request;</a>
+<a name="ln745">  int result = uv_fs_stat(&amp;fs_loop, &amp;request, name, NULL);</a>
+<a name="ln746">  if (result == kLibuvSuccess) {</a>
+<a name="ln747">    *statbuf = request.statbuf;</a>
+<a name="ln748">  }</a>
+<a name="ln749">  uv_fs_req_cleanup(&amp;request);</a>
+<a name="ln750">  return result;</a>
+<a name="ln751">}</a>
+<a name="ln752"> </a>
+<a name="ln753">/// Get the file permissions for a given file.</a>
+<a name="ln754">///</a>
+<a name="ln755">/// @return libuv error code on error.</a>
+<a name="ln756">int32_t os_getperm(const char *name)</a>
+<a name="ln757">{</a>
+<a name="ln758">  uv_stat_t statbuf;</a>
+<a name="ln759">  int stat_result = os_stat(name, &amp;statbuf);</a>
+<a name="ln760">  if (stat_result == kLibuvSuccess) {</a>
+<a name="ln761">    return (int32_t)statbuf.st_mode;</a>
+<a name="ln762">  } else {</a>
+<a name="ln763">    return stat_result;</a>
+<a name="ln764">  }</a>
+<a name="ln765">}</a>
+<a name="ln766"> </a>
+<a name="ln767">/// Set the permission of a file.</a>
+<a name="ln768">///</a>
+<a name="ln769">/// @return `OK` for success, `FAIL` for failure.</a>
+<a name="ln770">int os_setperm(const char *const name, int perm)</a>
+<a name="ln771">  FUNC_ATTR_NONNULL_ALL</a>
+<a name="ln772">{</a>
+<a name="ln773">  int r;</a>
+<a name="ln774">  RUN_UV_FS_FUNC(r, uv_fs_chmod, name, perm, NULL);</a>
+<a name="ln775">  return (r == kLibuvSuccess ? OK : FAIL);</a>
+<a name="ln776">}</a>
+<a name="ln777"> </a>
+<a name="ln778">/// Changes the owner and group of a file, like chown(2).</a>
+<a name="ln779">///</a>
+<a name="ln780">/// @return 0 on success, or libuv error code on failure.</a>
+<a name="ln781">///</a>
+<a name="ln782">/// @note If `owner` or `group` is -1, then that ID is not changed.</a>
+<a name="ln783">int os_chown(const char *path, uv_uid_t owner, uv_gid_t group)</a>
+<a name="ln784">{</a>
+<a name="ln785">  int r;</a>
+<a name="ln786">  RUN_UV_FS_FUNC(r, uv_fs_chown, path, owner, group, NULL);</a>
+<a name="ln787">  return r;</a>
+<a name="ln788">}</a>
+<a name="ln789"> </a>
+<a name="ln790">/// Changes the owner and group of the file referred to by the open file</a>
+<a name="ln791">/// descriptor, like fchown(2).</a>
+<a name="ln792">///</a>
+<a name="ln793">/// @return 0 on success, or libuv error code on failure.</a>
+<a name="ln794">///</a>
+<a name="ln795">/// @note If `owner` or `group` is -1, then that ID is not changed.</a>
+<a name="ln796">int os_fchown(int fd, uv_uid_t owner, uv_gid_t group)</a>
+<a name="ln797">{</a>
+<a name="ln798">  int r;</a>
+<a name="ln799">  RUN_UV_FS_FUNC(r, uv_fs_fchown, fd, owner, group, NULL);</a>
+<a name="ln800">  return r;</a>
+<a name="ln801">}</a>
+<a name="ln802"> </a>
+<a name="ln803">/// Check if a path exists.</a>
+<a name="ln804">///</a>
+<a name="ln805">/// @return `true` if `path` exists</a>
+<a name="ln806">bool os_path_exists(const char_u *path)</a>
+<a name="ln807">{</a>
+<a name="ln808">  uv_stat_t statbuf;</a>
+<a name="ln809">  return os_stat((char *)path, &amp;statbuf) == kLibuvSuccess;</a>
+<a name="ln810">}</a>
+<a name="ln811"> </a>
+<a name="ln812">/// Sets file access and modification times.</a>
+<a name="ln813">///</a>
+<a name="ln814">/// @see POSIX utime(2)</a>
+<a name="ln815">///</a>
+<a name="ln816">/// @param path   File path.</a>
+<a name="ln817">/// @param atime  Last access time.</a>
+<a name="ln818">/// @param mtime  Last modification time.</a>
+<a name="ln819">///</a>
+<a name="ln820">/// @return 0 on success, or negative error code.</a>
+<a name="ln821">int os_file_settime(const char *path, double atime, double mtime)</a>
+<a name="ln822">{</a>
+<a name="ln823">  int r;</a>
+<a name="ln824">  RUN_UV_FS_FUNC(r, uv_fs_utime, path, atime, mtime, NULL);</a>
+<a name="ln825">  return r;</a>
+<a name="ln826">}</a>
+<a name="ln827"> </a>
+<a name="ln828">/// Check if a file is readable.</a>
+<a name="ln829">///</a>
+<a name="ln830">/// @return true if `name` is readable, otherwise false.</a>
+<a name="ln831">bool os_file_is_readable(const char *name)</a>
+<a name="ln832">  FUNC_ATTR_NONNULL_ALL FUNC_ATTR_WARN_UNUSED_RESULT</a>
+<a name="ln833">{</a>
+<a name="ln834">  int r;</a>
+<a name="ln835">  RUN_UV_FS_FUNC(r, uv_fs_access, name, R_OK, NULL);</a>
+<a name="ln836">  return (r == 0);</a>
+<a name="ln837">}</a>
+<a name="ln838"> </a>
+<a name="ln839">/// Check if a file is writable.</a>
+<a name="ln840">///</a>
+<a name="ln841">/// @return `0` if `name` is not writable,</a>
+<a name="ln842">/// @return `1` if `name` is writable,</a>
+<a name="ln843">/// @return `2` for a directory which we have rights to write into.</a>
+<a name="ln844">int os_file_is_writable(const char *name)</a>
+<a name="ln845">  FUNC_ATTR_NONNULL_ALL FUNC_ATTR_WARN_UNUSED_RESULT</a>
+<a name="ln846">{</a>
+<a name="ln847">  int r;</a>
+<a name="ln848">  RUN_UV_FS_FUNC(r, uv_fs_access, name, W_OK, NULL);</a>
+<a name="ln849">  if (r == 0) {</a>
+<a name="ln850">    return os_isdir((char_u *)name) ? 2 : 1;</a>
+<a name="ln851">  }</a>
+<a name="ln852">  return 0;</a>
+<a name="ln853">}</a>
+<a name="ln854"> </a>
+<a name="ln855">/// Rename a file or directory.</a>
+<a name="ln856">///</a>
+<a name="ln857">/// @return `OK` for success, `FAIL` for failure.</a>
+<a name="ln858">int os_rename(const char_u *path, const char_u *new_path)</a>
+<a name="ln859">  FUNC_ATTR_NONNULL_ALL</a>
+<a name="ln860">{</a>
+<a name="ln861">  int r;</a>
+<a name="ln862">  RUN_UV_FS_FUNC(r, uv_fs_rename, (const char *)path, (const char *)new_path,</a>
+<a name="ln863">                 NULL);</a>
+<a name="ln864">  return (r == kLibuvSuccess ? OK : FAIL);</a>
+<a name="ln865">}</a>
+<a name="ln866"> </a>
+<a name="ln867">/// Make a directory.</a>
+<a name="ln868">///</a>
+<a name="ln869">/// @return `0` for success, libuv error code for failure.</a>
+<a name="ln870">int os_mkdir(const char *path, int32_t mode)</a>
+<a name="ln871">  FUNC_ATTR_NONNULL_ALL</a>
+<a name="ln872">{</a>
+<a name="ln873">  int r;</a>
+<a name="ln874">  RUN_UV_FS_FUNC(r, uv_fs_mkdir, path, mode, NULL);</a>
+<a name="ln875">  return r;</a>
+<a name="ln876">}</a>
+<a name="ln877"> </a>
+<a name="ln878">/// Make a directory, with higher levels when needed</a>
+<a name="ln879">///</a>
+<a name="ln880">/// @param[in]  dir  Directory to create.</a>
+<a name="ln881">/// @param[in]  mode  Permissions for the newly-created directory.</a>
+<a name="ln882">/// @param[out]  failed_dir  If it failed to create directory, then this</a>
+<a name="ln883">///                          argument is set to an allocated string containing</a>
+<a name="ln884">///                          the name of the directory which os_mkdir_recurse</a>
+<a name="ln885">///                          failed to create. I.e. it will contain dir or any</a>
+<a name="ln886">///                          of the higher level directories.</a>
+<a name="ln887">///</a>
+<a name="ln888">/// @return `0` for success, libuv error code for failure.</a>
+<a name="ln889">int os_mkdir_recurse(const char *const dir, int32_t mode,</a>
+<a name="ln890">                     char **const failed_dir)</a>
+<a name="ln891">  FUNC_ATTR_NONNULL_ALL FUNC_ATTR_WARN_UNUSED_RESULT</a>
+<a name="ln892">{</a>
+<a name="ln893">  // Get end of directory name in &quot;dir&quot;.</a>
+<a name="ln894">  // We're done when it's &quot;/&quot; or &quot;c:/&quot;.</a>
+<a name="ln895">  const size_t dirlen = strlen(dir);</a>
+<a name="ln896">  char *const curdir = xmemdupz(dir, dirlen);</a>
+<a name="ln897">  char *const past_head = (char *)get_past_head((char_u *)curdir);</a>
+<a name="ln898">  char *e = curdir + dirlen;</a>
+<a name="ln899">  const char *const real_end = e;</a>
+<a name="ln900">  const char past_head_save = *past_head;</a>
+<a name="ln901">  while (!os_isdir((char_u *)curdir)) {</a>
+<a name="ln902">    e = (char *)path_tail_with_sep((char_u *)curdir);</a>
+<a name="ln903">    if (e &lt;= past_head) {</a>
+<a name="ln904">      *past_head = NUL;</a>
+<a name="ln905">      break;</a>
+<a name="ln906">    }</a>
+<a name="ln907">    *e = NUL;</a>
+<a name="ln908">  }</a>
+<a name="ln909">  while (e != real_end) {</a>
+<a name="ln910">    if (e &gt; past_head) {</a>
+<a name="ln911">      *e = PATHSEP;</a>
+<a name="ln912">    } else {</a>
+<a name="ln913">      *past_head = past_head_save;</a>
+<a name="ln914">    }</a>
+<a name="ln915">    const size_t component_len = strlen(e);</a>
+<a name="ln916">    e += component_len;</a>
+<a name="ln917">    if (e == real_end</a>
+<a name="ln918">        &amp;&amp; memcnt(e - component_len, PATHSEP, component_len) == component_len) {</a>
+<a name="ln919">      // Path ends with something like &quot;////&quot;. Ignore this.</a>
+<a name="ln920">      break;</a>
+<a name="ln921">    }</a>
+<a name="ln922">    int ret;</a>
+<a name="ln923">    if ((ret = os_mkdir(curdir, mode)) != 0) {</a>
+<a name="ln924">      *failed_dir = curdir;</a>
+<a name="ln925">      return ret;</a>
+<a name="ln926">    }</a>
+<a name="ln927">  }</a>
+<a name="ln928">  xfree(curdir);</a>
+<a name="ln929">  return 0;</a>
+<a name="ln930">}</a>
+<a name="ln931"> </a>
+<a name="ln932">/// Create a unique temporary directory.</a>
+<a name="ln933">///</a>
+<a name="ln934">/// @param[in] template Template of the path to the directory with XXXXXX</a>
+<a name="ln935">///                     which would be replaced by random chars.</a>
+<a name="ln936">/// @param[out] path Path to created directory for success, undefined for</a>
+<a name="ln937">///                  failure.</a>
+<a name="ln938">/// @return `0` for success, non-zero for failure.</a>
+<a name="ln939">int os_mkdtemp(const char *template, char *path)</a>
+<a name="ln940">  FUNC_ATTR_NONNULL_ALL</a>
+<a name="ln941">{</a>
+<a name="ln942">  uv_fs_t request;</a>
+<a name="ln943">  int result = uv_fs_mkdtemp(&amp;fs_loop, &amp;request, template, NULL);</a>
+<a name="ln944">  if (result == kLibuvSuccess) {</a>
+<a name="ln945">    STRNCPY(path, request.path, TEMP_FILE_PATH_MAXLEN);</a>
+<a name="ln946">  }</a>
+<a name="ln947">  uv_fs_req_cleanup(&amp;request);</a>
+<a name="ln948">  return result;</a>
+<a name="ln949">}</a>
+<a name="ln950"> </a>
+<a name="ln951">/// Remove a directory.</a>
+<a name="ln952">///</a>
+<a name="ln953">/// @return `0` for success, non-zero for failure.</a>
+<a name="ln954">int os_rmdir(const char *path)</a>
+<a name="ln955">  FUNC_ATTR_NONNULL_ALL</a>
+<a name="ln956">{</a>
+<a name="ln957">  int r;</a>
+<a name="ln958">  RUN_UV_FS_FUNC(r, uv_fs_rmdir, path, NULL);</a>
+<a name="ln959">  return r;</a>
+<a name="ln960">}</a>
+<a name="ln961"> </a>
+<a name="ln962">/// Opens a directory.</a>
+<a name="ln963">/// @param[out] dir   The Directory object.</a>
+<a name="ln964">/// @param      path  Path to the directory.</a>
+<a name="ln965">/// @returns true if dir contains one or more items, false if not or an error</a>
+<a name="ln966">///          occurred.</a>
+<a name="ln967">bool os_scandir(Directory *dir, const char *path)</a>
+<a name="ln968">  FUNC_ATTR_NONNULL_ALL</a>
+<a name="ln969">{</a>
+<a name="ln970">  int r = uv_fs_scandir(&amp;fs_loop, &amp;dir-&gt;request, path, 0, NULL);</a>
+<a name="ln971">  if (r &lt; 0) {</a>
+<a name="ln972">    os_closedir(dir);</a>
+<a name="ln973">  }</a>
+<a name="ln974">  return r &gt;= 0;</a>
+<a name="ln975">}</a>
+<a name="ln976"> </a>
+<a name="ln977">/// Increments the directory pointer.</a>
+<a name="ln978">/// @param dir  The Directory object.</a>
+<a name="ln979">/// @returns a pointer to the next path in `dir` or `NULL`.</a>
+<a name="ln980">const char *os_scandir_next(Directory *dir)</a>
+<a name="ln981">  FUNC_ATTR_NONNULL_ALL</a>
+<a name="ln982">{</a>
+<a name="ln983">  int err = uv_fs_scandir_next(&amp;dir-&gt;request, &amp;dir-&gt;ent);</a>
+<a name="ln984">  return err != UV_EOF ? dir-&gt;ent.name : NULL;</a>
+<a name="ln985">}</a>
+<a name="ln986"> </a>
+<a name="ln987">/// Frees memory associated with `os_scandir()`.</a>
+<a name="ln988">/// @param dir  The directory.</a>
+<a name="ln989">void os_closedir(Directory *dir)</a>
+<a name="ln990">  FUNC_ATTR_NONNULL_ALL</a>
+<a name="ln991">{</a>
+<a name="ln992">  uv_fs_req_cleanup(&amp;dir-&gt;request);</a>
+<a name="ln993">}</a>
+<a name="ln994"> </a>
+<a name="ln995">/// Remove a file.</a>
+<a name="ln996">///</a>
+<a name="ln997">/// @return `0` for success, non-zero for failure.</a>
+<a name="ln998">int os_remove(const char *path)</a>
+<a name="ln999">  FUNC_ATTR_NONNULL_ALL</a>
+<a name="ln1000">{</a>
+<a name="ln1001">  int r;</a>
+<a name="ln1002">  RUN_UV_FS_FUNC(r, uv_fs_unlink, path, NULL);</a>
+<a name="ln1003">  return r;</a>
+<a name="ln1004">}</a>
+<a name="ln1005"> </a>
+<a name="ln1006">/// Get the file information for a given path</a>
+<a name="ln1007">///</a>
+<a name="ln1008">/// @param path Path to the file.</a>
+<a name="ln1009">/// @param[out] file_info Pointer to a FileInfo to put the information in.</a>
+<a name="ln1010">/// @return `true` on success, `false` for failure.</a>
+<a name="ln1011">bool os_fileinfo(const char *path, FileInfo *file_info)</a>
+<a name="ln1012">  FUNC_ATTR_NONNULL_ARG(2)</a>
+<a name="ln1013">{</a>
+<a name="ln1014">  memset(file_info, 0, sizeof(*file_info));</a>
+<a name="ln1015">  return os_stat(path, &amp;(file_info-&gt;stat)) == kLibuvSuccess;</a>
+<a name="ln1016">}</a>
+<a name="ln1017"> </a>
+<a name="ln1018">/// Get the file information for a given path without following links</a>
+<a name="ln1019">///</a>
+<a name="ln1020">/// @param path Path to the file.</a>
+<a name="ln1021">/// @param[out] file_info Pointer to a FileInfo to put the information in.</a>
+<a name="ln1022">/// @return `true` on success, `false` for failure.</a>
+<a name="ln1023">bool os_fileinfo_link(const char *path, FileInfo *file_info)</a>
+<a name="ln1024">  FUNC_ATTR_NONNULL_ARG(2)</a>
+<a name="ln1025">{</a>
+<a name="ln1026">  memset(file_info, 0, sizeof(*file_info));</a>
+<a name="ln1027">  if (path == NULL) {</a>
+<a name="ln1028">    return false;</a>
+<a name="ln1029">  }</a>
+<a name="ln1030">  uv_fs_t request;</a>
+<a name="ln1031">  bool ok = uv_fs_lstat(&amp;fs_loop, &amp;request, path, NULL) == kLibuvSuccess;</a>
+<a name="ln1032">  if (ok) {</a>
+<a name="ln1033">    file_info-&gt;stat = request.statbuf;</a>
+<a name="ln1034">  }</a>
+<a name="ln1035">  uv_fs_req_cleanup(&amp;request);</a>
+<a name="ln1036">  return ok;</a>
+<a name="ln1037">}</a>
+<a name="ln1038"> </a>
+<a name="ln1039">/// Get the file information for a given file descriptor</a>
+<a name="ln1040">///</a>
+<a name="ln1041">/// @param file_descriptor File descriptor of the file.</a>
+<a name="ln1042">/// @param[out] file_info Pointer to a FileInfo to put the information in.</a>
+<a name="ln1043">/// @return `true` on success, `false` for failure.</a>
+<a name="ln1044">bool os_fileinfo_fd(int file_descriptor, FileInfo *file_info)</a>
+<a name="ln1045">  FUNC_ATTR_NONNULL_ALL</a>
+<a name="ln1046">{</a>
+<a name="ln1047">  uv_fs_t request;</a>
+<a name="ln1048">  memset(file_info, 0, sizeof(*file_info));</a>
+<a name="ln1049">  bool ok = uv_fs_fstat(&amp;fs_loop,</a>
+<a name="ln1050">                        &amp;request,</a>
+<a name="ln1051">                        file_descriptor,</a>
+<a name="ln1052">                        NULL) == kLibuvSuccess;</a>
+<a name="ln1053">  if (ok) {</a>
+<a name="ln1054">    file_info-&gt;stat = request.statbuf;</a>
+<a name="ln1055">  }</a>
+<a name="ln1056">  uv_fs_req_cleanup(&amp;request);</a>
+<a name="ln1057">  return ok;</a>
+<a name="ln1058">}</a>
+<a name="ln1059"> </a>
+<a name="ln1060">/// Compare the inodes of two FileInfos</a>
+<a name="ln1061">///</a>
+<a name="ln1062">/// @return `true` if the two FileInfos represent the same file.</a>
+<a name="ln1063">bool os_fileinfo_id_equal(const FileInfo *file_info_1,</a>
+<a name="ln1064">                          const FileInfo *file_info_2)</a>
+<a name="ln1065">  FUNC_ATTR_NONNULL_ALL</a>
+<a name="ln1066">{</a>
+<a name="ln1067">  return file_info_1-&gt;stat.st_ino == file_info_2-&gt;stat.st_ino</a>
+<a name="ln1068">         &amp;&amp; file_info_1-&gt;stat.st_dev == file_info_2-&gt;stat.st_dev;</a>
+<a name="ln1069">}</a>
+<a name="ln1070"> </a>
+<a name="ln1071">/// Get the `FileID` of a `FileInfo`</a>
+<a name="ln1072">///</a>
+<a name="ln1073">/// @param file_info Pointer to the `FileInfo`</a>
+<a name="ln1074">/// @param[out] file_id Pointer to a `FileID`</a>
+<a name="ln1075">void os_fileinfo_id(const FileInfo *file_info, FileID *file_id)</a>
+<a name="ln1076">  FUNC_ATTR_NONNULL_ALL</a>
+<a name="ln1077">{</a>
+<a name="ln1078">  file_id-&gt;inode = file_info-&gt;stat.st_ino;</a>
+<a name="ln1079">  file_id-&gt;device_id = file_info-&gt;stat.st_dev;</a>
+<a name="ln1080">}</a>
+<a name="ln1081"> </a>
+<a name="ln1082">/// Get the inode of a `FileInfo`</a>
+<a name="ln1083">///</a>
+<a name="ln1084">/// @deprecated Use `FileID` instead, this function is only needed in memline.c</a>
+<a name="ln1085">/// @param file_info Pointer to the `FileInfo`</a>
+<a name="ln1086">/// @return the inode number</a>
+<a name="ln1087">uint64_t os_fileinfo_inode(const FileInfo *file_info)</a>
+<a name="ln1088">  FUNC_ATTR_NONNULL_ALL</a>
+<a name="ln1089">{</a>
+<a name="ln1090">  return file_info-&gt;stat.st_ino;</a>
+<a name="ln1091">}</a>
+<a name="ln1092"> </a>
+<a name="ln1093">/// Get the size of a file from a `FileInfo`.</a>
+<a name="ln1094">///</a>
+<a name="ln1095">/// @return filesize in bytes.</a>
+<a name="ln1096">uint64_t os_fileinfo_size(const FileInfo *file_info)</a>
+<a name="ln1097">  FUNC_ATTR_NONNULL_ALL</a>
+<a name="ln1098">{</a>
+<a name="ln1099">  return file_info-&gt;stat.st_size;</a>
+<a name="ln1100">}</a>
+<a name="ln1101"> </a>
+<a name="ln1102">/// Get the number of hardlinks from a `FileInfo`.</a>
+<a name="ln1103">///</a>
+<a name="ln1104">/// @return number of hardlinks.</a>
+<a name="ln1105">uint64_t os_fileinfo_hardlinks(const FileInfo *file_info)</a>
+<a name="ln1106">  FUNC_ATTR_NONNULL_ALL</a>
+<a name="ln1107">{</a>
+<a name="ln1108">  return file_info-&gt;stat.st_nlink;</a>
+<a name="ln1109">}</a>
+<a name="ln1110"> </a>
+<a name="ln1111">/// Get the blocksize from a `FileInfo`.</a>
+<a name="ln1112">///</a>
+<a name="ln1113">/// @return blocksize in bytes.</a>
+<a name="ln1114">uint64_t os_fileinfo_blocksize(const FileInfo *file_info)</a>
+<a name="ln1115">  FUNC_ATTR_NONNULL_ALL</a>
+<a name="ln1116">{</a>
+<a name="ln1117">  return file_info-&gt;stat.st_blksize;</a>
+<a name="ln1118">}</a>
+<a name="ln1119"> </a>
+<a name="ln1120">/// Get the `FileID` for a given path</a>
+<a name="ln1121">///</a>
+<a name="ln1122">/// @param path Path to the file.</a>
+<a name="ln1123">/// @param[out] file_info Pointer to a `FileID` to fill in.</a>
+<a name="ln1124">/// @return `true` on sucess, `false` for failure.</a>
+<a name="ln1125">bool os_fileid(const char *path, FileID *file_id)</a>
+<a name="ln1126">  FUNC_ATTR_NONNULL_ALL</a>
+<a name="ln1127">{</a>
+<a name="ln1128">  uv_stat_t statbuf;</a>
+<a name="ln1129">  if (os_stat(path, &amp;statbuf) == kLibuvSuccess) {</a>
+<a name="ln1130">    file_id-&gt;inode = statbuf.st_ino;</a>
+<a name="ln1131">    file_id-&gt;device_id = statbuf.st_dev;</a>
+<a name="ln1132">    return true;</a>
+<a name="ln1133">  }</a>
+<a name="ln1134">  return false;</a>
+<a name="ln1135">}</a>
+<a name="ln1136"> </a>
+<a name="ln1137">/// Check if two `FileID`s are equal</a>
+<a name="ln1138">///</a>
+<a name="ln1139">/// @param file_id_1 Pointer to first `FileID`</a>
+<a name="ln1140">/// @param file_id_2 Pointer to second `FileID`</a>
+<a name="ln1141">/// @return `true` if the two `FileID`s represent te same file.</a>
+<a name="ln1142">bool os_fileid_equal(const FileID *file_id_1, const FileID *file_id_2)</a>
+<a name="ln1143">  FUNC_ATTR_NONNULL_ALL</a>
+<a name="ln1144">{</a>
+<a name="ln1145">  return file_id_1-&gt;inode == file_id_2-&gt;inode</a>
+<a name="ln1146">         &amp;&amp; file_id_1-&gt;device_id == file_id_2-&gt;device_id;</a>
+<a name="ln1147">}</a>
+<a name="ln1148"> </a>
+<a name="ln1149">/// Check if a `FileID` is equal to a `FileInfo`</a>
+<a name="ln1150">///</a>
+<a name="ln1151">/// @param file_id Pointer to a `FileID`</a>
+<a name="ln1152">/// @param file_info Pointer to a `FileInfo`</a>
+<a name="ln1153">/// @return `true` if the `FileID` and the `FileInfo` represent te same file.</a>
+<a name="ln1154">bool os_fileid_equal_fileinfo(const FileID *file_id,</a>
+<a name="ln1155">                              const FileInfo *file_info)</a>
+<a name="ln1156">  FUNC_ATTR_NONNULL_ALL</a>
+<a name="ln1157">{</a>
+<a name="ln1158">  return file_id-&gt;inode == file_info-&gt;stat.st_ino</a>
+<a name="ln1159">         &amp;&amp; file_id-&gt;device_id == file_info-&gt;stat.st_dev;</a>
+<a name="ln1160">}</a>
+<a name="ln1161"> </a>
+<a name="ln1162">/// Return the canonicalized absolute pathname.</a>
+<a name="ln1163">///</a>
+<a name="ln1164">/// @param[in] name Filename to be canonicalized.</a>
+<a name="ln1165">/// @param[out] buf Buffer to store the canonicalized values. A minimum length</a>
+<a name="ln1166">//                  of MAXPATHL+1 is required. If it is NULL, memory is</a>
+<a name="ln1167">//                  allocated. In that case, the caller should deallocate this</a>
+<a name="ln1168">//                  buffer.</a>
+<a name="ln1169">///</a>
+<a name="ln1170">/// @return pointer to the buf on success, or NULL.</a>
+<a name="ln1171">char *os_realpath(const char *name, char *buf)</a>
+<a name="ln1172">  FUNC_ATTR_NONNULL_ARG(1)</a>
+<a name="ln1173">{</a>
+<a name="ln1174">  uv_fs_t request;</a>
+<a name="ln1175">  int result = uv_fs_realpath(&amp;fs_loop, &amp;request, name, NULL);</a>
+<a name="ln1176">  if (result == kLibuvSuccess) {</a>
+<a name="ln1177">    if (buf == NULL) {</a>
+<a name="ln1178">      buf = xmallocz(MAXPATHL);</a>
+<a name="ln1179">    }</a>
+<a name="ln1180">    xstrlcpy(buf, request.ptr, MAXPATHL + 1);</a>
+<a name="ln1181">  }</a>
+<a name="ln1182">  uv_fs_req_cleanup(&amp;request);</a>
+<a name="ln1183">  return result == kLibuvSuccess ? buf : NULL;</a>
+<a name="ln1184">}</a>
+<a name="ln1185"> </a>
+<a name="ln1186">#ifdef WIN32</a>
+<a name="ln1187"># include &lt;shlobj.h&gt;</a>
+<a name="ln1188"> </a>
+<a name="ln1189">/// When &quot;fname&quot; is the name of a shortcut (*.lnk) resolve the file it points</a>
+<a name="ln1190">/// to and return that name in allocated memory.</a>
+<a name="ln1191">/// Otherwise NULL is returned.</a>
+<a name="ln1192">char *os_resolve_shortcut(const char *fname)</a>
+<a name="ln1193">  FUNC_ATTR_WARN_UNUSED_RESULT FUNC_ATTR_MALLOC</a>
+<a name="ln1194">{</a>
+<a name="ln1195">  HRESULT hr;</a>
+<a name="ln1196">  IPersistFile *ppf = NULL;</a>
+<a name="ln1197">  OLECHAR wsz[MAX_PATH];</a>
+<a name="ln1198">  char *rfname = NULL;</a>
+<a name="ln1199">  IShellLinkW *pslw = NULL;</a>
+<a name="ln1200">  WIN32_FIND_DATAW ffdw;</a>
+<a name="ln1201"> </a>
+<a name="ln1202">  // Check if the file name ends in &quot;.lnk&quot;. Avoid calling CoCreateInstance(),</a>
+<a name="ln1203">  // it's quite slow.</a>
+<a name="ln1204">  if (fname == NULL) {</a>
+<a name="ln1205">    return rfname;</a>
+<a name="ln1206">  }</a>
+<a name="ln1207">  const size_t len = strlen(fname);</a>
+<a name="ln1208">  if (len &lt;= 4 || STRNICMP(fname + len - 4, &quot;.lnk&quot;, 4) != 0) {</a>
+<a name="ln1209">    return rfname;</a>
+<a name="ln1210">  }</a>
+<a name="ln1211"> </a>
+<a name="ln1212">  CoInitialize(NULL);</a>
+<a name="ln1213"> </a>
+<a name="ln1214">  // create a link manager object and request its interface</a>
+<a name="ln1215">  hr = CoCreateInstance(&amp;CLSID_ShellLink, NULL, CLSCTX_INPROC_SERVER,</a>
+<a name="ln1216">                        &amp;IID_IShellLinkW, (void **)&amp;pslw);</a>
+<a name="ln1217">  if (hr == S_OK) {</a>
+<a name="ln1218">    wchar_t *p;</a>
+<a name="ln1219">    const int r = utf8_to_utf16(fname, -1, &amp;p);</a>
+<a name="ln1220">    if (r != 0) {</a>
+<a name="ln1221">      EMSG2(&quot;utf8_to_utf16 failed: %d&quot;, r);</a>
+<a name="ln1222">    } else if (p != NULL) {</a>
+<a name="ln1223">      // Get a pointer to the IPersistFile interface.</a>
+<a name="ln1224">      hr = pslw-&gt;lpVtbl-&gt;QueryInterface(</a>
+<a name="ln1225">          pslw, &amp;IID_IPersistFile, (void **)&amp;ppf);</a>
+<a name="ln1226">      if (hr != S_OK) {</a>
+<a name="ln1227">        goto shortcut_errorw;</a>
+<a name="ln1228">      }</a>
+<a name="ln1229"> </a>
+<a name="ln1230">      // &quot;load&quot; the name and resolve the link</a>
+<a name="ln1231">      hr = ppf-&gt;lpVtbl-&gt;Load(ppf, p, STGM_READ);</a>
+<a name="ln1232">      if (hr != S_OK) {</a>
+<a name="ln1233">        goto shortcut_errorw;</a>
+<a name="ln1234">      }</a>
+<a name="ln1235"> </a>
+<a name="ln1236">#  if 0  // This makes Vim wait a long time if the target does not exist.</a>
+<a name="ln1237">      hr = pslw-&gt;lpVtbl-&gt;Resolve(pslw, NULL, SLR_NO_UI);</a>
+<a name="ln1238">      if (hr != S_OK) {</a>
+<a name="ln1239">        goto shortcut_errorw;</a>
+<a name="ln1240">      }</a>
+<a name="ln1241">#  endif</a>
+<a name="ln1242"> </a>
+<a name="ln1243">      // Get the path to the link target.</a>
+<a name="ln1244">      ZeroMemory(wsz, MAX_PATH * sizeof(wchar_t));</a>
+<a name="ln1245">      hr = pslw-&gt;lpVtbl-&gt;GetPath(pslw, wsz, MAX_PATH, &amp;ffdw, 0);</a>
+<a name="ln1246">      if (hr == S_OK &amp;&amp; wsz[0] != NUL) {</a>
+<a name="ln1247">        const int r2 = utf16_to_utf8(wsz, -1, &amp;rfname);</a>
+<a name="ln1248">        if (r2 != 0) {</a>
+<a name="ln1249">          EMSG2(&quot;utf16_to_utf8 failed: %d&quot;, r2);</a>
+<a name="ln1250">        }</a>
+<a name="ln1251">      }</a>
+<a name="ln1252"> </a>
+<a name="ln1253">shortcut_errorw:</a>
+<a name="ln1254">      xfree(p);</a>
+<a name="ln1255">      goto shortcut_end;</a>
+<a name="ln1256">    }</a>
+<a name="ln1257">  }</a>
+<a name="ln1258"> </a>
+<a name="ln1259">shortcut_end:</a>
+<a name="ln1260">  // Release all interface pointers (both belong to the same object)</a>
+<a name="ln1261">  if (ppf != NULL) {</a>
+<a name="ln1262">    ppf-&gt;lpVtbl-&gt;Release(ppf);</a>
+<a name="ln1263">  }</a>
+<a name="ln1264">  if (pslw != NULL) {</a>
+<a name="ln1265">    pslw-&gt;lpVtbl-&gt;Release(pslw);</a>
+<a name="ln1266">  }</a>
+<a name="ln1267"> </a>
+<a name="ln1268">  CoUninitialize();</a>
+<a name="ln1269">  return rfname;</a>
+<a name="ln1270">}</a>
+<a name="ln1271"> </a>
+<a name="ln1272">#define is_path_sep(c) ((c) == L'\\' || (c) == L'/')</a>
+<a name="ln1273">/// Returns true if the path contains a reparse point (junction or symbolic</a>
+<a name="ln1274">/// link). Otherwise false in returned.</a>
+<a name="ln1275">bool os_is_reparse_point_include(const char *path)</a>
+<a name="ln1276">{</a>
+<a name="ln1277">  wchar_t *p, *q, *utf16_path;</a>
+<a name="ln1278">  wchar_t buf[MAX_PATH];</a>
+<a name="ln1279">  DWORD attr;</a>
+<a name="ln1280">  bool result = false;</a>
+<a name="ln1281"> </a>
+<a name="ln1282">  const int r = utf8_to_utf16(path, -1, &amp;utf16_path);</a>
+<a name="ln1283">  if (r != 0) {</a>
+<a name="ln1284">    EMSG2(&quot;utf8_to_utf16 failed: %d&quot;, r);</a>
+<a name="ln1285">    return false;</a>
+<a name="ln1286">  }</a>
+<a name="ln1287"> </a>
+<a name="ln1288">  p = utf16_path;</a>
+<a name="ln1289">  if (isalpha(p[0]) &amp;&amp; p[1] == L':' &amp;&amp; is_path_sep(p[2])) {</a>
+<a name="ln1290">    p += 3;</a>
+<a name="ln1291">  } else if (is_path_sep(p[0]) &amp;&amp; is_path_sep(p[1])) {</a>
+<a name="ln1292">    p += 2;</a>
+<a name="ln1293">  }</a>
+<a name="ln1294"> </a>
+<a name="ln1295">  while (*p != L'\0') {</a>
+<a name="ln1296">    q = wcspbrk(p, L&quot;\\/&quot;);</a>
+<a name="ln1297">    if (q == NULL) {</a>
+<a name="ln1298">      p = q = utf16_path + wcslen(utf16_path);</a>
+<a name="ln1299">    } else {</a>
+<a name="ln1300">      p = q + 1;</a>
+<a name="ln1301">    }</a>
+<a name="ln1302">    if (q - utf16_path &gt;= MAX_PATH) {</a>
+<a name="ln1303">      break;</a>
+<a name="ln1304">    }</a>
+<a name="ln1305">    wcsncpy(buf, utf16_path, (size_t)(q - utf16_path));</a>
+<a name="ln1306">    buf[q - utf16_path] = L'\0';</a>
+<a name="ln1307">    attr = GetFileAttributesW(buf);</a>
+<a name="ln1308">    if (attr != INVALID_FILE_ATTRIBUTES</a>
+<a name="ln1309">        &amp;&amp; (attr &amp; FILE_ATTRIBUTE_REPARSE_POINT) != 0) {</a>
+<a name="ln1310">      result = true;</a>
+<a name="ln1311">      break;</a>
+<a name="ln1312">    }</a>
+<a name="ln1313">  }</a>
+<a name="ln1314">  xfree(utf16_path);</a>
+<a name="ln1315">  return result;</a>
+<a name="ln1316">}</a>
+<a name="ln1317">#endif</a>
+
+</code></pre>
+<div class="balloon" rel="475"><p><span style="font-size:18px">&uarr;</span> <a href="https://www.viva64.com/en/w/v617/" target="_blank">V617</a> Consider inspecting the condition. The '01' argument of the '|' bitwise operation contains a non-zero value.</p></div>
+
+<link rel="stylesheet" href="highlight.css">
+<script src="highlight.pack.js"></script>
+<script src="highlightjs-line-numbers.js"></script>
+<script>hljs.initHighlightingOnLoad();</script>
+<script>hljs.initLineNumbersOnLoad();</script>
+<script>
+  $(document).ready(function() {
+      $('.balloon').each(function () {
+          var bl = $(this);
+          var line = bl.attr('rel');
+          var text = $('a[name="ln'+line+'"]').text();
+
+          var space_count = 0;
+          for(var i = 0; i<text.length; i++){
+              var char = text[i];
+              if((char !== ' ')&&(char !== '\t'))break;
+              if(char === '\t')space_count++;
+              space_count++;
+          }
+
+          bl.css('margin-left', space_count*8);
+          $('a[name="ln'+line+'"]').after(bl);
+      });
+
+      window.location = window.location;
+  });
+</script>
+</body>
+</html>

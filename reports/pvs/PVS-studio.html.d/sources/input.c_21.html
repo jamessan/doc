@@ -406,7 +406,7 @@
 <a name="ln393">    prof_inchar_enter();</a>
 <a name="ln394">  }</a>
 <a name="ln395"> </a>
-<a name="ln396">  if ((ms == - 1 || ms &gt; 0) &amp;&amp; events == NULL &amp;&amp; !input_eof) {</a>
+<a name="ln396">  if ((ms == - 1 || ms &gt; 0) &amp;&amp; events != main_loop.events &amp;&amp; !input_eof) {</a>
 <a name="ln397">    // The pending input provoked a blocking wait. Do special events now. #6247</a>
 <a name="ln398">    blocking = true;</a>
 <a name="ln399">    multiqueue_process_events(ch_before_blocking_events);</a>

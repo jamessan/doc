@@ -988,9 +988,9 @@
 <a name="ln975">  if (b0p-&gt;b0_flags &amp; B0_HAS_FENC) {</a>
 <a name="ln976">    int fnsize = B0_FNAME_SIZE_NOCRYPT;</a>
 <a name="ln977"> </a>
-<a name="ln978">    for (p = b0p-&gt;b0_fname + fnsize; p &gt; b0p-&gt;b0_fname &amp;&amp; p[-1] != NUL; --p)</a>
-<a name="ln979">      ;</a>
-<a name="ln980">    b0_fenc = vim_strnsave(p, (int)(b0p-&gt;b0_fname + fnsize - p));</a>
+<a name="ln978">    for (p = b0p-&gt;b0_fname + fnsize; p &gt; b0p-&gt;b0_fname &amp;&amp; p[-1] != NUL; p--) {</a>
+<a name="ln979">    }</a>
+<a name="ln980">    b0_fenc = vim_strnsave(p, b0p-&gt;b0_fname + fnsize - p);</a>
 <a name="ln981">  }</a>
 <a name="ln982"> </a>
 <a name="ln983">  mf_put(mfp, hp, false, false);        /* release block 0 */</a>
@@ -4165,89 +4165,87 @@
 <a name="ln4152">  check_cursor();</a>
 <a name="ln4153"> </a>
 <a name="ln4154">  // Make sure the cursor is on the first byte of a multi-byte char.</a>
-<a name="ln4155">  if (has_mbyte) {</a>
-<a name="ln4156">    mb_adjust_cursor();</a>
-<a name="ln4157">  }</a>
-<a name="ln4158">}</a>
-<a name="ln4159"> </a>
-<a name="ln4160">/// Increment the line pointer &quot;lp&quot; crossing line boundaries as necessary.</a>
-<a name="ln4161">/// Return 1 when going to the next line.</a>
-<a name="ln4162">/// Return 2 when moving forward onto a NUL at the end of the line).</a>
-<a name="ln4163">/// Return -1 when at the end of file.</a>
-<a name="ln4164">/// Return 0 otherwise.</a>
-<a name="ln4165">int inc(pos_T *lp)</a>
-<a name="ln4166">{</a>
-<a name="ln4167">  // when searching position may be set to end of a line</a>
-<a name="ln4168">  if (lp-&gt;col != MAXCOL) {</a>
-<a name="ln4169">    const char_u *const p = ml_get_pos(lp);</a>
-<a name="ln4170">    if (*p != NUL) {  // still within line, move to next char (may be NUL)</a>
-<a name="ln4171">      const int l = utfc_ptr2len(p);</a>
-<a name="ln4172"> </a>
-<a name="ln4173">      lp-&gt;col += l;</a>
-<a name="ln4174">      return ((p[l] != NUL) ? 0 : 2);</a>
-<a name="ln4175">    }</a>
-<a name="ln4176">  }</a>
-<a name="ln4177">  if (lp-&gt;lnum != curbuf-&gt;b_ml.ml_line_count) {     // there is a next line</a>
-<a name="ln4178">    lp-&gt;col = 0;</a>
-<a name="ln4179">    lp-&gt;lnum++;</a>
-<a name="ln4180">    lp-&gt;coladd = 0;</a>
-<a name="ln4181">    return 1;</a>
-<a name="ln4182">  }</a>
-<a name="ln4183">  return -1;</a>
-<a name="ln4184">}</a>
-<a name="ln4185"> </a>
-<a name="ln4186">/// Same as inc(), but skip NUL at the end of non-empty lines.</a>
-<a name="ln4187">int incl(pos_T *lp)</a>
-<a name="ln4188">{</a>
-<a name="ln4189">  int r;</a>
-<a name="ln4190"> </a>
-<a name="ln4191">  if ((r = inc(lp)) &gt;= 1 &amp;&amp; lp-&gt;col) {</a>
-<a name="ln4192">    r = inc(lp);</a>
-<a name="ln4193">  }</a>
-<a name="ln4194">  return r;</a>
-<a name="ln4195">}</a>
-<a name="ln4196"> </a>
-<a name="ln4197">int dec(pos_T *lp)</a>
-<a name="ln4198">{</a>
-<a name="ln4199">  lp-&gt;coladd = 0;</a>
-<a name="ln4200">  if (lp-&gt;col == MAXCOL) {</a>
-<a name="ln4201">    // past end of line</a>
-<a name="ln4202">    char_u *p = ml_get(lp-&gt;lnum);</a>
-<a name="ln4203">    lp-&gt;col = (colnr_T)STRLEN(p);</a>
-<a name="ln4204">    lp-&gt;col -= utf_head_off(p, p + lp-&gt;col);</a>
-<a name="ln4205">    return 0;</a>
-<a name="ln4206">  }</a>
-<a name="ln4207"> </a>
-<a name="ln4208">  if (lp-&gt;col &gt; 0) {</a>
-<a name="ln4209">    // still within line</a>
-<a name="ln4210">    lp-&gt;col--;</a>
-<a name="ln4211">    char_u *p = ml_get(lp-&gt;lnum);</a>
-<a name="ln4212">    lp-&gt;col -= utf_head_off(p, p + lp-&gt;col);</a>
-<a name="ln4213">    return 0;</a>
-<a name="ln4214">  }</a>
-<a name="ln4215">  if (lp-&gt;lnum &gt; 1) {</a>
-<a name="ln4216">    // there is a prior line</a>
-<a name="ln4217">    lp-&gt;lnum--;</a>
-<a name="ln4218">    char_u *p = ml_get(lp-&gt;lnum);</a>
-<a name="ln4219">    lp-&gt;col = (colnr_T)STRLEN(p);</a>
-<a name="ln4220">    lp-&gt;col -= utf_head_off(p, p + lp-&gt;col);</a>
-<a name="ln4221">    return 1;</a>
-<a name="ln4222">  }</a>
-<a name="ln4223"> </a>
-<a name="ln4224">  // at start of file</a>
-<a name="ln4225">  return -1;</a>
-<a name="ln4226">}</a>
-<a name="ln4227"> </a>
-<a name="ln4228">/// Same as dec(), but skip NUL at the end of non-empty lines.</a>
-<a name="ln4229">int decl(pos_T *lp)</a>
-<a name="ln4230">{</a>
-<a name="ln4231">  int r;</a>
-<a name="ln4232"> </a>
-<a name="ln4233">  if ((r = dec(lp)) == 1 &amp;&amp; lp-&gt;col) {</a>
-<a name="ln4234">    r = dec(lp);</a>
-<a name="ln4235">  }</a>
-<a name="ln4236">  return r;</a>
-<a name="ln4237">}</a>
+<a name="ln4155">  mb_adjust_cursor();</a>
+<a name="ln4156">}</a>
+<a name="ln4157"> </a>
+<a name="ln4158">/// Increment the line pointer &quot;lp&quot; crossing line boundaries as necessary.</a>
+<a name="ln4159">/// Return 1 when going to the next line.</a>
+<a name="ln4160">/// Return 2 when moving forward onto a NUL at the end of the line).</a>
+<a name="ln4161">/// Return -1 when at the end of file.</a>
+<a name="ln4162">/// Return 0 otherwise.</a>
+<a name="ln4163">int inc(pos_T *lp)</a>
+<a name="ln4164">{</a>
+<a name="ln4165">  // when searching position may be set to end of a line</a>
+<a name="ln4166">  if (lp-&gt;col != MAXCOL) {</a>
+<a name="ln4167">    const char_u *const p = ml_get_pos(lp);</a>
+<a name="ln4168">    if (*p != NUL) {  // still within line, move to next char (may be NUL)</a>
+<a name="ln4169">      const int l = utfc_ptr2len(p);</a>
+<a name="ln4170"> </a>
+<a name="ln4171">      lp-&gt;col += l;</a>
+<a name="ln4172">      return ((p[l] != NUL) ? 0 : 2);</a>
+<a name="ln4173">    }</a>
+<a name="ln4174">  }</a>
+<a name="ln4175">  if (lp-&gt;lnum != curbuf-&gt;b_ml.ml_line_count) {     // there is a next line</a>
+<a name="ln4176">    lp-&gt;col = 0;</a>
+<a name="ln4177">    lp-&gt;lnum++;</a>
+<a name="ln4178">    lp-&gt;coladd = 0;</a>
+<a name="ln4179">    return 1;</a>
+<a name="ln4180">  }</a>
+<a name="ln4181">  return -1;</a>
+<a name="ln4182">}</a>
+<a name="ln4183"> </a>
+<a name="ln4184">/// Same as inc(), but skip NUL at the end of non-empty lines.</a>
+<a name="ln4185">int incl(pos_T *lp)</a>
+<a name="ln4186">{</a>
+<a name="ln4187">  int r;</a>
+<a name="ln4188"> </a>
+<a name="ln4189">  if ((r = inc(lp)) &gt;= 1 &amp;&amp; lp-&gt;col) {</a>
+<a name="ln4190">    r = inc(lp);</a>
+<a name="ln4191">  }</a>
+<a name="ln4192">  return r;</a>
+<a name="ln4193">}</a>
+<a name="ln4194"> </a>
+<a name="ln4195">int dec(pos_T *lp)</a>
+<a name="ln4196">{</a>
+<a name="ln4197">  lp-&gt;coladd = 0;</a>
+<a name="ln4198">  if (lp-&gt;col == MAXCOL) {</a>
+<a name="ln4199">    // past end of line</a>
+<a name="ln4200">    char_u *p = ml_get(lp-&gt;lnum);</a>
+<a name="ln4201">    lp-&gt;col = (colnr_T)STRLEN(p);</a>
+<a name="ln4202">    lp-&gt;col -= utf_head_off(p, p + lp-&gt;col);</a>
+<a name="ln4203">    return 0;</a>
+<a name="ln4204">  }</a>
+<a name="ln4205"> </a>
+<a name="ln4206">  if (lp-&gt;col &gt; 0) {</a>
+<a name="ln4207">    // still within line</a>
+<a name="ln4208">    lp-&gt;col--;</a>
+<a name="ln4209">    char_u *p = ml_get(lp-&gt;lnum);</a>
+<a name="ln4210">    lp-&gt;col -= utf_head_off(p, p + lp-&gt;col);</a>
+<a name="ln4211">    return 0;</a>
+<a name="ln4212">  }</a>
+<a name="ln4213">  if (lp-&gt;lnum &gt; 1) {</a>
+<a name="ln4214">    // there is a prior line</a>
+<a name="ln4215">    lp-&gt;lnum--;</a>
+<a name="ln4216">    char_u *p = ml_get(lp-&gt;lnum);</a>
+<a name="ln4217">    lp-&gt;col = (colnr_T)STRLEN(p);</a>
+<a name="ln4218">    lp-&gt;col -= utf_head_off(p, p + lp-&gt;col);</a>
+<a name="ln4219">    return 1;</a>
+<a name="ln4220">  }</a>
+<a name="ln4221"> </a>
+<a name="ln4222">  // at start of file</a>
+<a name="ln4223">  return -1;</a>
+<a name="ln4224">}</a>
+<a name="ln4225"> </a>
+<a name="ln4226">/// Same as dec(), but skip NUL at the end of non-empty lines.</a>
+<a name="ln4227">int decl(pos_T *lp)</a>
+<a name="ln4228">{</a>
+<a name="ln4229">  int r;</a>
+<a name="ln4230"> </a>
+<a name="ln4231">  if ((r = dec(lp)) == 1 &amp;&amp; lp-&gt;col) {</a>
+<a name="ln4232">    r = dec(lp);</a>
+<a name="ln4233">  }</a>
+<a name="ln4234">  return r;</a>
+<a name="ln4235">}</a>
 
 </code></pre>
 <div class="balloon" rel="1017"><p><span style="font-size:18px">&uarr;</span> <a href="https://www.viva64.com/en/w/v1048/" target="_blank">V1048</a> The 'buf->b_ml.ml_stack_top' variable was assigned the same value.</p></div>

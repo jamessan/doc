@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta content="IE=edge" http-equiv="X-UA-Compatible">
+    <meta content="width=device-width, initial-scale=1" name="viewport">
+    <title>Nvim documentation: nvim</title>
+    <link href="https://fonts.googleapis.com/css?family=Lato:400,700,900" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/normalize/3.0.0/normalize.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.5/css/bootstrap.min.css">
+    <link href="/css/main.css" rel="stylesheet">
+    <!--[if lt IE 9]>
+      <script src="https://oss.maxcdn.com/libs/html5shiv/3.7.0/html5shiv.js"></script>
+      <script src="https://oss.maxcdn.com/libs/respond.js/1.4.2/respond.min.js"></script>
+    <![endif]-->
+    
+  </head>
+  <body>
+    <header class="navbar">
+      <div class="container">
+        <nav class="navbar">
+          <div class="container-fluid">
+            <div class="navbar-header">
+
+              <a href="/" class="navbar-brand">
+                <img src="/images/logo@2x.png" id="navbar-logo" alt="Neovim">
+              </a>
+            </div>
+          </div>
+        </nav>
+      </div>
+    </header>
+
+    <div class="container">
+      <h1>Nvim documentation: nvim</h1>
+<A NAME="top"></A>
+<A HREF="index.html">main help file</A>
+
+<HR>
+<PRE>
+
+*<A NAME="nvim.txt"></A><B>nvim.txt</B>*	Nvim
+
+
+			    NVIM REFERENCE MANUAL
+
+
+
+Nvim							   *<A NAME="nvim"></A><B>nvim</B>* *<A NAME="nvim-intro"></A><B>nvim-intro</B>*
+
+Nvim is based on Vim by Bram Moolenaar.
+
+If you already use Vim see |<A HREF="#nvim-from-vim">nvim-from-vim</A>| for a quickstart.
+If you are new to Vim, try the 30-minute tutorial:
+
+<B>    :Tutor&lt;Enter&gt;</B>
+
+Nvim is emphatically a fork of Vim, not a clone: compatibility with Vim
+(especially editor and VimL features) is maintained where possible. See
+|<A HREF="vim_diff.html#vim-differences">vim-differences</A>| for the complete reference of differences from Vim.
+
+				      Type |<A HREF="various.html#gO">gO</A>| to see the table of contents.
+
+==============================================================================
+
+Transitioning from Vim				*<A NAME="nvim-from-vim"></A><B>nvim-from-vim</B>*
+
+1. To start the transition, create your |<A HREF="init.html">init.vim</A>| (user <A HREF="starting.html#config">config</A>) file:
+
+<B>    :call mkdir(stdpath('config'), 'p')</B>
+<B>    :exe 'edit '.stdpath('config').'/init.vim'</B>
+
+2. Add these contents to the file:
+
+<B>    set runtimepath^=~/.vim runtimepath+=~/.vim/after</B>
+<B>    let &amp;packpath = &amp;runtimepath</B>
+<B>    source ~/.vimrc</B>
+
+3. Restart Nvim, your existing Vim <A HREF="starting.html#config">config</A> will be loaded.
+
+See |<A HREF="provider.html#provider-python">provider-python</A>| and |<A HREF="provider.html#provider-clipboard">provider-clipboard</A>| for additional software you
+might need to use some features.
+
+Your Vim configuration might not be entirely Nvim-compatible.
+See |<A HREF="vim_diff.html#vim-differences">vim-differences</A>| for the full <A HREF="eval.html#list">list</A> of changes.
+
+The |<A HREF="vim_diff.html#'ttymouse'">'ttymouse'</A>| option, for example, was removed from Nvim (mouse support
+should work without <A HREF="motion.html#it">it</A>). If you use the same |<A HREF="starting.html#vimrc">vimrc</A>| for Vim and Nvim,
+consider guarding |<A HREF="vim_diff.html#'ttymouse'">'ttymouse'</A>| in your configuration like so:
+
+<B>    if !has('nvim')</B>
+<B>        set ttymouse=xterm2</B>
+<B>    endif</B>
+ 
+Conversely, if you have Nvim specific configuration items, you could <A HREF="diff.html#do">do</A>
+this:
+
+<B>    if has('nvim')</B>
+<B>        tnoremap &lt;Esc&gt; &lt;C-\&gt;&lt;C-n&gt;</B>
+<B>    endif</B>
+ 
+For a more granular approach use YXXYexists()|:
+
+<B>    if exists(':tnoremap')</B>
+<B>        tnoremap &lt;Esc&gt; &lt;C-\&gt;&lt;C-n&gt;</B>
+<B>    endif</B>
+ 
+Now you should be able to explore Nvim more comfortably. Check |<A HREF="vim_diff.html#nvim-features">nvim-features</A>|
+for more information.
+
+==============================================================================
+<A HREF="#top">top</A> - <A HREF="index.html">main help file</A>
+</PRE>
+    </div>
+
+    <footer>
+      <div class="container">
+        Generated Wed Nov 11 14:13:43 UTC 2020 from <a href="https://github.com/neovim/neovim/commit/0a95549d66df63c06d775fcc329f7b63cbb46b2f"><code>0a95549</code></a>.
+      </div>
+    </footer>
+  </body>
+</html>

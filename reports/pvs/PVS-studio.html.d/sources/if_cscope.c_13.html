@@ -1,0 +1,2088 @@
+
+<html>
+<head>
+
+  <meta http-equiv="Content-Type" content="text/html; charset=US-ASCII" />
+  <title>if_cscope.c</title>
+
+  <link rel="stylesheet" href="../style.css"/>
+  <script src="../jquery-3.5.1.min.js"></script>
+</head>
+<body>
+
+<pre><code class = "cpp">
+<a name="ln1">// This is an open source non-commercial project. Dear PVS-Studio, please check</a>
+<a name="ln2">// it. PVS-Studio Static Code Analyzer for C, C++ and C#: http://www.viva64.com</a>
+<a name="ln3"> </a>
+<a name="ln4">/*</a>
+<a name="ln5"> * CSCOPE support for Vim added by Andy Kahn &lt;kahn@zk3.dec.com&gt;</a>
+<a name="ln6"> * Ported to Win32 by Sergey Khorev &lt;sergey.khorev@gmail.com&gt;</a>
+<a name="ln7"> *</a>
+<a name="ln8"> * The basic idea/structure of cscope for Vim was borrowed from Nvi.  There</a>
+<a name="ln9"> * might be a few lines of code that look similar to what Nvi has.</a>
+<a name="ln10"> */</a>
+<a name="ln11"> </a>
+<a name="ln12">#include &lt;stdbool.h&gt;</a>
+<a name="ln13"> </a>
+<a name="ln14">#include &lt;assert.h&gt;</a>
+<a name="ln15">#include &lt;errno.h&gt;</a>
+<a name="ln16">#include &lt;inttypes.h&gt;</a>
+<a name="ln17">#include &lt;fcntl.h&gt;</a>
+<a name="ln18"> </a>
+<a name="ln19">#include &quot;nvim/buffer.h&quot;</a>
+<a name="ln20">#include &quot;nvim/ascii.h&quot;</a>
+<a name="ln21">#include &quot;nvim/if_cscope.h&quot;</a>
+<a name="ln22">#include &quot;nvim/charset.h&quot;</a>
+<a name="ln23">#include &quot;nvim/fileio.h&quot;</a>
+<a name="ln24">#include &quot;nvim/message.h&quot;</a>
+<a name="ln25">#include &quot;nvim/memory.h&quot;</a>
+<a name="ln26">#include &quot;nvim/os/time.h&quot;</a>
+<a name="ln27">#include &quot;nvim/path.h&quot;</a>
+<a name="ln28">#include &quot;nvim/quickfix.h&quot;</a>
+<a name="ln29">#include &quot;nvim/strings.h&quot;</a>
+<a name="ln30">#include &quot;nvim/tag.h&quot;</a>
+<a name="ln31">#include &quot;nvim/os/os.h&quot;</a>
+<a name="ln32">#include &quot;nvim/os/input.h&quot;</a>
+<a name="ln33">#include &quot;nvim/event/stream.h&quot;</a>
+<a name="ln34"> </a>
+<a name="ln35">#include &lt;sys/types.h&gt;</a>
+<a name="ln36">#include &lt;sys/stat.h&gt;</a>
+<a name="ln37">#if defined(UNIX)</a>
+<a name="ln38"># include &lt;sys/wait.h&gt;</a>
+<a name="ln39">#endif</a>
+<a name="ln40">#include &quot;nvim/if_cscope_defs.h&quot;</a>
+<a name="ln41"> </a>
+<a name="ln42">#ifdef INCLUDE_GENERATED_DECLARATIONS</a>
+<a name="ln43"># include &quot;if_cscope.c.generated.h&quot;</a>
+<a name="ln44">#endif</a>
+<a name="ln45"> </a>
+<a name="ln46">static csinfo_T *   csinfo = NULL;</a>
+<a name="ln47">static size_t csinfo_size = 0;    // number of items allocated in csinfo[]</a>
+<a name="ln48"> </a>
+<a name="ln49">static int eap_arg_len;           // length of eap-&gt;arg, set in cs_lookup_cmd()</a>
+<a name="ln50">static cscmd_T cs_cmds[] =</a>
+<a name="ln51">{</a>
+<a name="ln52">  { &quot;add&quot;,    cs_add,</a>
+<a name="ln53">    N_(&quot;Add a new database&quot;),     &quot;add file|dir [pre-path] [flags]&quot;, 0 },</a>
+<a name="ln54">  { &quot;find&quot;,   cs_find,</a>
+<a name="ln55">    N_(&quot;Query for a pattern&quot;),    &quot;find a|c|d|e|f|g|i|s|t name&quot;, 1 },</a>
+<a name="ln56">  { &quot;help&quot;,   cs_help,</a>
+<a name="ln57">    N_(&quot;Show this message&quot;),      &quot;help&quot;, 0 },</a>
+<a name="ln58">  { &quot;kill&quot;,   cs_kill,</a>
+<a name="ln59">    N_(&quot;Kill a connection&quot;),      &quot;kill #&quot;, 0 },</a>
+<a name="ln60">  { &quot;reset&quot;,  cs_reset,</a>
+<a name="ln61">    N_(&quot;Reinit all connections&quot;), &quot;reset&quot;, 0 },</a>
+<a name="ln62">  { &quot;show&quot;,   cs_show,</a>
+<a name="ln63">    N_(&quot;Show connections&quot;),       &quot;show&quot;, 0 },</a>
+<a name="ln64">  { NULL, NULL, NULL, NULL, 0 }</a>
+<a name="ln65">};</a>
+<a name="ln66"> </a>
+<a name="ln67">static void cs_usage_msg(csid_e x)</a>
+<a name="ln68">{</a>
+<a name="ln69">  (void)EMSG2(_(&quot;E560: Usage: cs[cope] %s&quot;), cs_cmds[(int)x].usage);</a>
+<a name="ln70">}</a>
+<a name="ln71"> </a>
+<a name="ln72"> </a>
+<a name="ln73">static enum {</a>
+<a name="ln74">  EXP_CSCOPE_SUBCMD,    // expand &quot;:cscope&quot; sub-commands</a>
+<a name="ln75">  EXP_SCSCOPE_SUBCMD,   // expand &quot;:scscope&quot; sub-commands</a>
+<a name="ln76">  EXP_CSCOPE_FIND,      // expand &quot;:cscope find&quot; arguments</a>
+<a name="ln77">  EXP_CSCOPE_KILL       // expand &quot;:cscope kill&quot; arguments</a>
+<a name="ln78">} expand_what;</a>
+<a name="ln79"> </a>
+<a name="ln80">/*</a>
+<a name="ln81"> * Function given to ExpandGeneric() to obtain the cscope command</a>
+<a name="ln82"> * expansion.</a>
+<a name="ln83"> */</a>
+<a name="ln84">char_u *get_cscope_name(expand_T *xp, int idx)</a>
+<a name="ln85">{</a>
+<a name="ln86">  int current_idx;</a>
+<a name="ln87"> </a>
+<a name="ln88">  switch (expand_what) {</a>
+<a name="ln89">  case EXP_CSCOPE_SUBCMD:</a>
+<a name="ln90">    // Complete with sub-commands of &quot;:cscope&quot;:</a>
+<a name="ln91">    // add, find, help, kill, reset, show</a>
+<a name="ln92">    return (char_u *)cs_cmds[idx].name;</a>
+<a name="ln93">  case EXP_SCSCOPE_SUBCMD:</a>
+<a name="ln94">  {</a>
+<a name="ln95">    // Complete with sub-commands of &quot;:scscope&quot;: same sub-commands as</a>
+<a name="ln96">    // &quot;:cscope&quot; but skip commands which don't support split windows</a>
+<a name="ln97">    int i;</a>
+<a name="ln98">    for (i = 0, current_idx = 0; cs_cmds[i].name != NULL; i++)</a>
+<a name="ln99">      if (cs_cmds[i].cansplit)</a>
+<a name="ln100">        if (current_idx++ == idx)</a>
+<a name="ln101">          break;</a>
+<a name="ln102">    return (char_u *)cs_cmds[i].name;</a>
+<a name="ln103">  }</a>
+<a name="ln104">  case EXP_CSCOPE_FIND:</a>
+<a name="ln105">  {</a>
+<a name="ln106">    const char *query_type[] =</a>
+<a name="ln107">    {</a>
+<a name="ln108">      &quot;a&quot;, &quot;c&quot;, &quot;d&quot;, &quot;e&quot;, &quot;f&quot;, &quot;g&quot;, &quot;i&quot;, &quot;s&quot;, &quot;t&quot;, NULL</a>
+<a name="ln109">    };</a>
+<a name="ln110"> </a>
+<a name="ln111">    // Complete with query type of &quot;:cscope find {query_type}&quot;.</a>
+<a name="ln112">    // {query_type} can be letters (c, d, ... a) or numbers (0, 1,</a>
+<a name="ln113">    // ..., 9) but only complete with letters, since numbers are</a>
+<a name="ln114">    // redundant.</a>
+<a name="ln115">    return (char_u *)query_type[idx];</a>
+<a name="ln116">  }</a>
+<a name="ln117">  case EXP_CSCOPE_KILL:</a>
+<a name="ln118">  {</a>
+<a name="ln119">    static char connection[5];</a>
+<a name="ln120"> </a>
+<a name="ln121">    // &quot;:cscope kill&quot; accepts connection numbers or partial names of</a>
+<a name="ln122">    // the pathname of the cscope database as argument.  Only complete</a>
+<a name="ln123">    // with connection numbers. -1 can also be used to kill all</a>
+<a name="ln124">    // connections.</a>
+<a name="ln125">    size_t i;</a>
+<a name="ln126">    for (i = 0, current_idx = 0; i &lt; csinfo_size; i++) {</a>
+<a name="ln127">      if (csinfo[i].fname == NULL)</a>
+<a name="ln128">        continue;</a>
+<a name="ln129">      if (current_idx++ == idx) {</a>
+<a name="ln130">        vim_snprintf(connection, sizeof(connection), &quot;%zu&quot;, i);</a>
+<a name="ln131">        return (char_u *)connection;</a>
+<a name="ln132">      }</a>
+<a name="ln133">    }</a>
+<a name="ln134">    return (current_idx == idx &amp;&amp; idx &gt; 0) ? (char_u *)&quot;-1&quot; : NULL;</a>
+<a name="ln135">  }</a>
+<a name="ln136">  default:</a>
+<a name="ln137">    return NULL;</a>
+<a name="ln138">  }</a>
+<a name="ln139">}</a>
+<a name="ln140"> </a>
+<a name="ln141">/*</a>
+<a name="ln142"> * Handle command line completion for :cscope command.</a>
+<a name="ln143"> */</a>
+<a name="ln144">void set_context_in_cscope_cmd(expand_T *xp, const char *arg, cmdidx_T cmdidx)</a>
+<a name="ln145">{</a>
+<a name="ln146">  // Default: expand subcommands.</a>
+<a name="ln147">  xp-&gt;xp_context = EXPAND_CSCOPE;</a>
+<a name="ln148">  xp-&gt;xp_pattern = (char_u *)arg;</a>
+<a name="ln149">  expand_what = ((cmdidx == CMD_scscope)</a>
+<a name="ln150">                 ? EXP_SCSCOPE_SUBCMD : EXP_CSCOPE_SUBCMD);</a>
+<a name="ln151"> </a>
+<a name="ln152">  // (part of) subcommand already typed</a>
+<a name="ln153">  if (*arg != NUL) {</a>
+<a name="ln154">    const char *p = (const char *)skiptowhite((const char_u *)arg);</a>
+<a name="ln155">    if (*p != NUL) {  // Past first word.</a>
+<a name="ln156">      xp-&gt;xp_pattern = skipwhite((const char_u *)p);</a>
+<a name="ln157">      if (*skiptowhite(xp-&gt;xp_pattern) != NUL) {</a>
+<a name="ln158">        xp-&gt;xp_context = EXPAND_NOTHING;</a>
+<a name="ln159">      } else if (STRNICMP(arg, &quot;add&quot;, p - arg) == 0) {</a>
+<a name="ln160">        xp-&gt;xp_context = EXPAND_FILES;</a>
+<a name="ln161">      } else if (STRNICMP(arg, &quot;kill&quot;, p - arg) == 0) {</a>
+<a name="ln162">        expand_what = EXP_CSCOPE_KILL;</a>
+<a name="ln163">      } else if (STRNICMP(arg, &quot;find&quot;, p - arg) == 0) {</a>
+<a name="ln164">        expand_what = EXP_CSCOPE_FIND;</a>
+<a name="ln165">      } else {</a>
+<a name="ln166">        xp-&gt;xp_context = EXPAND_NOTHING;</a>
+<a name="ln167">      }</a>
+<a name="ln168">    }</a>
+<a name="ln169">  }</a>
+<a name="ln170">}</a>
+<a name="ln171"> </a>
+<a name="ln172"> </a>
+<a name="ln173">/// Find the command, print help if invalid, and then call the corresponding</a>
+<a name="ln174">/// command function.</a>
+<a name="ln175">static void</a>
+<a name="ln176">do_cscope_general(</a>
+<a name="ln177">    exarg_T *eap,</a>
+<a name="ln178">    int make_split             // whether to split window</a>
+<a name="ln179">)</a>
+<a name="ln180">{</a>
+<a name="ln181">  cscmd_T *cmdp;</a>
+<a name="ln182"> </a>
+<a name="ln183">  if ((cmdp = cs_lookup_cmd(eap)) == NULL) {</a>
+<a name="ln184">    cs_help(eap);</a>
+<a name="ln185">    return;</a>
+<a name="ln186">  }</a>
+<a name="ln187"> </a>
+<a name="ln188">  if (make_split) {</a>
+<a name="ln189">    if (!cmdp-&gt;cansplit) {</a>
+<a name="ln190">      (void)MSG_PUTS(_(</a>
+<a name="ln191">              &quot;This cscope command does not support splitting the window.\n&quot;));</a>
+<a name="ln192">      return;</a>
+<a name="ln193">    }</a>
+<a name="ln194">    postponed_split = -1;</a>
+<a name="ln195">    postponed_split_flags = cmdmod.split;</a>
+<a name="ln196">    postponed_split_tab = cmdmod.tab;</a>
+<a name="ln197">  }</a>
+<a name="ln198"> </a>
+<a name="ln199">  cmdp-&gt;func(eap);</a>
+<a name="ln200"> </a>
+<a name="ln201">  postponed_split_flags = 0;</a>
+<a name="ln202">  postponed_split_tab = 0;</a>
+<a name="ln203">}</a>
+<a name="ln204"> </a>
+<a name="ln205">/// Implementation of &quot;:cscope&quot; and &quot;:lcscope&quot;</a>
+<a name="ln206">void ex_cscope(exarg_T *eap)</a>
+<a name="ln207">{</a>
+<a name="ln208">  do_cscope_general(eap, FALSE);</a>
+<a name="ln209">}</a>
+<a name="ln210"> </a>
+<a name="ln211">/// Implementation of &quot;:scscope&quot;. Same as ex_cscope(), but splits window, too.</a>
+<a name="ln212">void ex_scscope(exarg_T *eap)</a>
+<a name="ln213">{</a>
+<a name="ln214">  do_cscope_general(eap, TRUE);</a>
+<a name="ln215">}</a>
+<a name="ln216"> </a>
+<a name="ln217">/// Implementation of &quot;:cstag&quot;</a>
+<a name="ln218">void ex_cstag(exarg_T *eap)</a>
+<a name="ln219">{</a>
+<a name="ln220">  int ret = FALSE;</a>
+<a name="ln221"> </a>
+<a name="ln222">  if (*eap-&gt;arg == NUL) {</a>
+<a name="ln223">    (void)EMSG(_(&quot;E562: Usage: cstag &lt;ident&gt;&quot;));</a>
+<a name="ln224">    return;</a>
+<a name="ln225">  }</a>
+<a name="ln226"> </a>
+<a name="ln227">  switch (p_csto) {</a>
+<a name="ln228">  case 0:</a>
+<a name="ln229">    if (cs_check_for_connections()) {</a>
+<a name="ln230">      ret = cs_find_common(&quot;g&quot;, (char *)(eap-&gt;arg), eap-&gt;forceit, FALSE,</a>
+<a name="ln231">          FALSE, *eap-&gt;cmdlinep);</a>
+<a name="ln232">      if (ret == FALSE) {</a>
+<a name="ln233">        cs_free_tags();</a>
+<a name="ln234">        if (msg_col)</a>
+<a name="ln235">          msg_putchar('\n');</a>
+<a name="ln236"> </a>
+<a name="ln237">        if (cs_check_for_tags())</a>
+<a name="ln238">          ret = do_tag(eap-&gt;arg, DT_JUMP, 0, eap-&gt;forceit, FALSE);</a>
+<a name="ln239">      }</a>
+<a name="ln240">    } else if (cs_check_for_tags()) {</a>
+<a name="ln241">      ret = do_tag(eap-&gt;arg, DT_JUMP, 0, eap-&gt;forceit, FALSE);</a>
+<a name="ln242">    }</a>
+<a name="ln243">    break;</a>
+<a name="ln244">  case 1:</a>
+<a name="ln245">    if (cs_check_for_tags()) {</a>
+<a name="ln246">      ret = do_tag(eap-&gt;arg, DT_JUMP, 0, eap-&gt;forceit, FALSE);</a>
+<a name="ln247">      if (ret == FALSE) {</a>
+<a name="ln248">        if (msg_col)</a>
+<a name="ln249">          msg_putchar('\n');</a>
+<a name="ln250"> </a>
+<a name="ln251">        if (cs_check_for_connections()) {</a>
+<a name="ln252">          ret = cs_find_common(&quot;g&quot;, (char *)(eap-&gt;arg), eap-&gt;forceit,</a>
+<a name="ln253">              FALSE, FALSE, *eap-&gt;cmdlinep);</a>
+<a name="ln254">          if (ret == FALSE)</a>
+<a name="ln255">            cs_free_tags();</a>
+<a name="ln256">        }</a>
+<a name="ln257">      }</a>
+<a name="ln258">    } else if (cs_check_for_connections()) {</a>
+<a name="ln259">      ret = cs_find_common(&quot;g&quot;, (char *)(eap-&gt;arg), eap-&gt;forceit, FALSE,</a>
+<a name="ln260">          FALSE, *eap-&gt;cmdlinep);</a>
+<a name="ln261">      if (ret == FALSE)</a>
+<a name="ln262">        cs_free_tags();</a>
+<a name="ln263">    }</a>
+<a name="ln264">    break;</a>
+<a name="ln265">  default:</a>
+<a name="ln266">    break;</a>
+<a name="ln267">  }</a>
+<a name="ln268"> </a>
+<a name="ln269">  if (!ret) {</a>
+<a name="ln270">    (void)EMSG(_(&quot;E257: cstag: tag not found&quot;));</a>
+<a name="ln271">    g_do_tagpreview = 0;</a>
+<a name="ln272">  }</a>
+<a name="ln273">}</a>
+<a name="ln274"> </a>
+<a name="ln275"> </a>
+<a name="ln276">/// This simulates a vim_fgets(), but for cscope, returns the next line</a>
+<a name="ln277">/// from the cscope output.  should only be called from find_tags()</a>
+<a name="ln278">///</a>
+<a name="ln279">/// @return true if eof, FALSE otherwise</a>
+<a name="ln280">bool cs_fgets(char_u *buf, int size)</a>
+<a name="ln281">  FUNC_ATTR_NONNULL_ALL</a>
+<a name="ln282">{</a>
+<a name="ln283">  char *p;</a>
+<a name="ln284"> </a>
+<a name="ln285">  if ((p = cs_manage_matches(NULL, NULL, 0, Get)) == NULL) {</a>
+<a name="ln286">    return true;</a>
+<a name="ln287">  }</a>
+<a name="ln288">  STRLCPY(buf, p, size);</a>
+<a name="ln289"> </a>
+<a name="ln290">  return false;</a>
+<a name="ln291">}</a>
+<a name="ln292"> </a>
+<a name="ln293"> </a>
+<a name="ln294">/// Called only from do_tag(), when popping the tag stack.</a>
+<a name="ln295">void cs_free_tags(void)</a>
+<a name="ln296">{</a>
+<a name="ln297">  cs_manage_matches(NULL, NULL, 0, Free);</a>
+<a name="ln298">}</a>
+<a name="ln299"> </a>
+<a name="ln300">/// Called from do_tag().</a>
+<a name="ln301">void cs_print_tags(void)</a>
+<a name="ln302">{</a>
+<a name="ln303">  cs_manage_matches(NULL, NULL, 0, Print);</a>
+<a name="ln304">}</a>
+<a name="ln305"> </a>
+<a name="ln306">/*</a>
+<a name="ln307"> * &quot;cscope_connection([{num} , {dbpath} [, {prepend}]])&quot; function</a>
+<a name="ln308"> *</a>
+<a name="ln309"> *		Checks for the existence of a |cscope| connection.  If no</a>
+<a name="ln310"> *		parameters are specified, then the function returns:</a>
+<a name="ln311"> *</a>
+<a name="ln312"> *		0, if cscope was not available (not compiled in), or if there</a>
+<a name="ln313"> *		are no cscope connections; or</a>
+<a name="ln314"> *		1, if there is at least one cscope connection.</a>
+<a name="ln315"> *</a>
+<a name="ln316"> *		If parameters are specified, then the value of {num}</a>
+<a name="ln317"> *		determines how existence of a cscope connection is checked:</a>
+<a name="ln318"> *</a>
+<a name="ln319"> *		{num}	Description of existence check</a>
+<a name="ln320"> *		-----	------------------------------</a>
+<a name="ln321"> *		0	Same as no parameters (e.g., &quot;cscope_connection()&quot;).</a>
+<a name="ln322"> *		1	Ignore {prepend}, and use partial string matches for</a>
+<a name="ln323"> *			{dbpath}.</a>
+<a name="ln324"> *		2	Ignore {prepend}, and use exact string matches for</a>
+<a name="ln325"> *			{dbpath}.</a>
+<a name="ln326"> *		3	Use {prepend}, use partial string matches for both</a>
+<a name="ln327"> *			{dbpath} and {prepend}.</a>
+<a name="ln328"> *		4	Use {prepend}, use exact string matches for both</a>
+<a name="ln329"> *			{dbpath} and {prepend}.</a>
+<a name="ln330"> *</a>
+<a name="ln331"> *		Note: All string comparisons are case sensitive!</a>
+<a name="ln332"> */</a>
+<a name="ln333">bool cs_connection(int num, char_u *dbpath, char_u *ppath)</a>
+<a name="ln334">{</a>
+<a name="ln335">  if (num &lt; 0 || num &gt; 4 || (num &gt; 0 &amp;&amp; !dbpath)) {</a>
+<a name="ln336">    return false;</a>
+<a name="ln337">  }</a>
+<a name="ln338"> </a>
+<a name="ln339">  for (size_t i = 0; i &lt; csinfo_size; i++) {</a>
+<a name="ln340">    if (!csinfo[i].fname) {</a>
+<a name="ln341">      continue;</a>
+<a name="ln342">    }</a>
+<a name="ln343">    if (num == 0) {</a>
+<a name="ln344">      return true;</a>
+<a name="ln345">    }</a>
+<a name="ln346">    switch (num) {</a>
+<a name="ln347">    case 1:</a>
+<a name="ln348">      if (strstr(csinfo[i].fname, (char *)dbpath)) {</a>
+<a name="ln349">        return true;</a>
+<a name="ln350">      }</a>
+<a name="ln351">      break;</a>
+<a name="ln352">    case 2:</a>
+<a name="ln353">      if (strcmp(csinfo[i].fname, (char *)dbpath) == 0) {</a>
+<a name="ln354">        return true;</a>
+<a name="ln355">      }</a>
+<a name="ln356">      break;</a>
+<a name="ln357">    case 3:</a>
+<a name="ln358">      if (strstr(csinfo[i].fname, (char *)dbpath)</a>
+<a name="ln359">          &amp;&amp; ((!ppath &amp;&amp; !csinfo[i].ppath)</a>
+<a name="ln360">              || (ppath</a>
+<a name="ln361">                  &amp;&amp; csinfo[i].ppath</a>
+<a name="ln362">                  &amp;&amp; strstr(csinfo[i].ppath, (char *)ppath)))) {</a>
+<a name="ln363">        return true;</a>
+<a name="ln364">      }</a>
+<a name="ln365">      break;</a>
+<a name="ln366">    case 4:</a>
+<a name="ln367">      if ((strcmp(csinfo[i].fname, (char *)dbpath) == 0)</a>
+<a name="ln368">          &amp;&amp; ((!ppath &amp;&amp; !csinfo[i].ppath)</a>
+<a name="ln369">              || (ppath</a>
+<a name="ln370">                  &amp;&amp; csinfo[i].ppath</a>
+<a name="ln371">                  &amp;&amp; (strcmp(csinfo[i].ppath, (char *)ppath) == 0)))) {</a>
+<a name="ln372">        return true;</a>
+<a name="ln373">      }</a>
+<a name="ln374">      break;</a>
+<a name="ln375">    }</a>
+<a name="ln376">  }</a>
+<a name="ln377"> </a>
+<a name="ln378">  return false;</a>
+<a name="ln379">}  // cs_connection</a>
+<a name="ln380"> </a>
+<a name="ln381"> </a>
+<a name="ln382">/*</a>
+<a name="ln383"> * PRIVATE functions</a>
+<a name="ln384"> ****************************************************************************/</a>
+<a name="ln385"> </a>
+<a name="ln386">/// Add cscope database or a directory name (to look for cscope.out)</a>
+<a name="ln387">/// to the cscope connection list.</a>
+<a name="ln388">static int cs_add(exarg_T *eap)</a>
+<a name="ln389">{</a>
+<a name="ln390">  char *fname, *ppath, *flags = NULL;</a>
+<a name="ln391"> </a>
+<a name="ln392">  if ((fname = strtok((char *)NULL, (const char *)&quot; &quot;)) == NULL) {</a>
+<a name="ln393">    cs_usage_msg(Add);</a>
+<a name="ln394">    return CSCOPE_FAILURE;</a>
+<a name="ln395">  }</a>
+<a name="ln396">  if ((ppath = strtok((char *)NULL, (const char *)&quot; &quot;)) != NULL)</a>
+<a name="ln397">    flags = strtok((char *)NULL, (const char *)&quot; &quot;);</a>
+<a name="ln398"> </a>
+<a name="ln399">  return cs_add_common(fname, ppath, flags);</a>
+<a name="ln400">}</a>
+<a name="ln401"> </a>
+<a name="ln402">static void cs_stat_emsg(char *fname)</a>
+<a name="ln403">{</a>
+<a name="ln404">  char *stat_emsg = _(&quot;E563: stat(%s) error: %d&quot;);</a>
+<a name="ln405">  char *buf = xmalloc(strlen(stat_emsg) + MAXPATHL + 10);</a>
+<a name="ln406"> </a>
+<a name="ln407">  (void)sprintf(buf, stat_emsg, fname, errno);</a>
+<a name="ln408">  (void)EMSG(buf);</a>
+<a name="ln409">  xfree(buf);</a>
+<a name="ln410">}</a>
+<a name="ln411"> </a>
+<a name="ln412"> </a>
+<a name="ln413">/// The common routine to add a new cscope connection.  Called by</a>
+<a name="ln414">/// cs_add() and cs_reset().  I really don't like to do this, but this</a>
+<a name="ln415">/// routine uses a number of goto statements.</a>
+<a name="ln416">static int</a>
+<a name="ln417">cs_add_common(</a>
+<a name="ln418">    char *arg1,         // filename - may contain environment variables</a>
+<a name="ln419">    char *arg2,         // prepend path - may contain environment variables</a>
+<a name="ln420">    char *flags</a>
+<a name="ln421">)</a>
+<a name="ln422">{</a>
+<a name="ln423">  char        *fname = NULL;</a>
+<a name="ln424">  char        *fname2 = NULL;</a>
+<a name="ln425">  char        *ppath = NULL;</a>
+<a name="ln426">  size_t usedlen = 0;</a>
+<a name="ln427">  char_u      *fbuf = NULL;</a>
+<a name="ln428"> </a>
+<a name="ln429">  // get the filename (arg1), expand it, and try to stat it</a>
+<a name="ln430">  fname = xmalloc(MAXPATHL + 1);</a>
+<a name="ln431"> </a>
+<a name="ln432">  expand_env((char_u *)arg1, (char_u *)fname, MAXPATHL);</a>
+<a name="ln433">  size_t len = STRLEN(fname);</a>
+<a name="ln434">  fbuf = (char_u *)fname;</a>
+<a name="ln435">  (void)modify_fname((char_u *)&quot;:p&quot;, false, &amp;usedlen,</a>
+<a name="ln436">                     (char_u **)&amp;fname, &amp;fbuf, &amp;len);</a>
+<a name="ln437">  if (fname == NULL) {</a>
+<a name="ln438">    goto add_err;</a>
+<a name="ln439">  }</a>
+<a name="ln440">  fname = (char *)vim_strnsave((char_u *)fname, len);</a>
+<a name="ln441">  xfree(fbuf);</a>
+<a name="ln442">  FileInfo file_info;</a>
+<a name="ln443">  bool file_info_ok  = os_fileinfo(fname, &amp;file_info);</a>
+<a name="ln444">  if (!file_info_ok) {</a>
+<a name="ln445">staterr:</a>
+<a name="ln446">    if (p_csverbose)</a>
+<a name="ln447">      cs_stat_emsg(fname);</a>
+<a name="ln448">    goto add_err;</a>
+<a name="ln449">  }</a>
+<a name="ln450"> </a>
+<a name="ln451">  // get the prepend path (arg2), expand it, and see if it exists</a>
+<a name="ln452">  if (arg2 != NULL) {</a>
+<a name="ln453">    ppath = xmalloc(MAXPATHL + 1);</a>
+<a name="ln454">    expand_env((char_u *)arg2, (char_u *)ppath, MAXPATHL);</a>
+<a name="ln455">    if (!os_path_exists((char_u *)ppath)) {</a>
+<a name="ln456">      goto staterr;</a>
+<a name="ln457">    }</a>
+<a name="ln458">  }</a>
+<a name="ln459"> </a>
+<a name="ln460">  int i;</a>
+<a name="ln461">  // if filename is a directory, append the cscope database name to it</a>
+<a name="ln462">  if (S_ISDIR(file_info.stat.st_mode)) {</a>
+<a name="ln463">    fname2 = (char *)xmalloc(strlen(CSCOPE_DBFILE) + strlen(fname) + 2);</a>
+<a name="ln464"> </a>
+<a name="ln465">    while (fname[strlen(fname)-1] == '/'</a>
+<a name="ln466">           ) {</a>
+<a name="ln467">      fname[strlen(fname)-1] = '\0';</a>
+<a name="ln468">      if (fname[0] == '\0')</a>
+<a name="ln469">        break;</a>
+<a name="ln470">    }</a>
+<a name="ln471">    if (fname[0] == '\0')</a>
+<a name="ln472">      (void)sprintf(fname2, &quot;/%s&quot;, CSCOPE_DBFILE);</a>
+<a name="ln473">    else</a>
+<a name="ln474">      (void)sprintf(fname2, &quot;%s/%s&quot;, fname, CSCOPE_DBFILE);</a>
+<a name="ln475"> </a>
+<a name="ln476">    file_info_ok = os_fileinfo(fname2, &amp;file_info);</a>
+<a name="ln477">    if (!file_info_ok) {</a>
+<a name="ln478">      if (p_csverbose)</a>
+<a name="ln479">        cs_stat_emsg(fname2);</a>
+<a name="ln480">      goto add_err;</a>
+<a name="ln481">    }</a>
+<a name="ln482"> </a>
+<a name="ln483">    i = cs_insert_filelist(fname2, ppath, flags, &amp;file_info);</a>
+<a name="ln484">  }</a>
+<a name="ln485">  else if (S_ISREG(file_info.stat.st_mode) || S_ISLNK(file_info.stat.st_mode))</a>
+<a name="ln486">  {</a>
+<a name="ln487">    i = cs_insert_filelist(fname, ppath, flags, &amp;file_info);</a>
+<a name="ln488">  } else {</a>
+<a name="ln489">    if (p_csverbose)</a>
+<a name="ln490">      (void)EMSG2(</a>
+<a name="ln491">          _(&quot;E564: %s is not a directory or a valid cscope database&quot;),</a>
+<a name="ln492">          fname);</a>
+<a name="ln493">    goto add_err;</a>
+<a name="ln494">  }</a>
+<a name="ln495"> </a>
+<a name="ln496">  if (i != -1) {</a>
+<a name="ln497">    assert(i &gt;= 0);</a>
+<a name="ln498">    if (cs_create_connection((size_t)i) == CSCOPE_FAILURE</a>
+<a name="ln499">        || cs_read_prompt((size_t)i) == CSCOPE_FAILURE) {</a>
+<a name="ln500">      cs_release_csp((size_t)i, true);</a>
+<a name="ln501">      goto add_err;</a>
+<a name="ln502">    }</a>
+<a name="ln503"> </a>
+<a name="ln504">    if (p_csverbose) {</a>
+<a name="ln505">      msg_clr_eos();</a>
+<a name="ln506">      (void)smsg_attr(HL_ATTR(HLF_R),</a>
+<a name="ln507">                      _(&quot;Added cscope database %s&quot;),</a>
+<a name="ln508">                      csinfo[i].fname);</a>
+<a name="ln509">    }</a>
+<a name="ln510">  }</a>
+<a name="ln511"> </a>
+<a name="ln512">  xfree(fname);</a>
+<a name="ln513">  xfree(fname2);</a>
+<a name="ln514">  xfree(ppath);</a>
+<a name="ln515">  return CSCOPE_SUCCESS;</a>
+<a name="ln516"> </a>
+<a name="ln517">add_err:</a>
+<a name="ln518">  xfree(fname2);</a>
+<a name="ln519">  xfree(fname);</a>
+<a name="ln520">  xfree(ppath);</a>
+<a name="ln521">  return CSCOPE_FAILURE;</a>
+<a name="ln522">}</a>
+<a name="ln523"> </a>
+<a name="ln524"> </a>
+<a name="ln525">static int cs_check_for_connections(void)</a>
+<a name="ln526">{</a>
+<a name="ln527">  return cs_cnt_connections() &gt; 0;</a>
+<a name="ln528">}</a>
+<a name="ln529"> </a>
+<a name="ln530">static int cs_check_for_tags(void)</a>
+<a name="ln531">{</a>
+<a name="ln532">  return p_tags[0] != NUL &amp;&amp; curbuf-&gt;b_p_tags != NULL;</a>
+<a name="ln533">}</a>
+<a name="ln534"> </a>
+<a name="ln535">/// Count the number of cscope connections.</a>
+<a name="ln536">static size_t cs_cnt_connections(void)</a>
+<a name="ln537">{</a>
+<a name="ln538">  size_t cnt = 0;</a>
+<a name="ln539"> </a>
+<a name="ln540">  for (size_t i = 0; i &lt; csinfo_size; i++) {</a>
+<a name="ln541">    if (csinfo[i].fname != NULL)</a>
+<a name="ln542">      cnt++;</a>
+<a name="ln543">  }</a>
+<a name="ln544">  return cnt;</a>
+<a name="ln545">}</a>
+<a name="ln546"> </a>
+<a name="ln547">static void cs_reading_emsg(</a>
+<a name="ln548">    size_t idx        // connection index</a>
+<a name="ln549">)</a>
+<a name="ln550">{</a>
+<a name="ln551">  EMSGU(_(&quot;E262: error reading cscope connection %&quot; PRIu64), idx);</a>
+<a name="ln552">}</a>
+<a name="ln553"> </a>
+<a name="ln554">#define CSREAD_BUFSIZE  2048</a>
+<a name="ln555">/// Count the number of matches for a given cscope connection.</a>
+<a name="ln556">static int cs_cnt_matches(size_t idx)</a>
+<a name="ln557">{</a>
+<a name="ln558">  char *stok;</a>
+<a name="ln559">  int nlines = 0;</a>
+<a name="ln560"> </a>
+<a name="ln561">  char *buf = xmalloc(CSREAD_BUFSIZE);</a>
+<a name="ln562">  for (;; ) {</a>
+<a name="ln563">    errno = 0;</a>
+<a name="ln564">    if (!fgets(buf, CSREAD_BUFSIZE, csinfo[idx].fr_fp)) {</a>
+<a name="ln565">      if (errno == EINTR) {</a>
+<a name="ln566">        continue;</a>
+<a name="ln567">      }</a>
+<a name="ln568"> </a>
+<a name="ln569">      if (feof(csinfo[idx].fr_fp)) {</a>
+<a name="ln570">        errno = EIO;</a>
+<a name="ln571">      }</a>
+<a name="ln572"> </a>
+<a name="ln573">      cs_reading_emsg(idx);</a>
+<a name="ln574"> </a>
+<a name="ln575">      xfree(buf);</a>
+<a name="ln576">      return CSCOPE_FAILURE;</a>
+<a name="ln577">    }</a>
+<a name="ln578"> </a>
+<a name="ln579">    // If the database is out of date, or there's some other problem,</a>
+<a name="ln580">    // cscope will output error messages before the number-of-lines output.</a>
+<a name="ln581">    // Display/discard any output that doesn't match what we want.</a>
+<a name="ln582">    // Accept &quot;\S*cscope: X lines&quot;, also matches &quot;mlcscope&quot;.</a>
+<a name="ln583">    // Bail out for the &quot;Unable to search&quot; error.</a>
+<a name="ln584">    if (strstr((const char *)buf, &quot;Unable to search database&quot;) != NULL) {</a>
+<a name="ln585">        break;</a>
+<a name="ln586">    }</a>
+<a name="ln587">    if ((stok = strtok(buf, (const char *)&quot; &quot;)) == NULL) {</a>
+<a name="ln588">      continue;</a>
+<a name="ln589">    }</a>
+<a name="ln590">    if (strstr((const char *)stok, &quot;cscope:&quot;) == NULL) {</a>
+<a name="ln591">      continue;</a>
+<a name="ln592">    }</a>
+<a name="ln593"> </a>
+<a name="ln594">    if ((stok = strtok(NULL, (const char *)&quot; &quot;)) == NULL)</a>
+<a name="ln595">      continue;</a>
+<a name="ln596">    nlines = atoi(stok);</a>
+<a name="ln597">    if (nlines &lt; 0) {</a>
+<a name="ln598">      nlines = 0;</a>
+<a name="ln599">      break;</a>
+<a name="ln600">    }</a>
+<a name="ln601"> </a>
+<a name="ln602">    if ((stok = strtok(NULL, (const char *)&quot; &quot;)) == NULL)</a>
+<a name="ln603">      continue;</a>
+<a name="ln604">    if (strncmp((const char *)stok, &quot;lines&quot;, 5))</a>
+<a name="ln605">      continue;</a>
+<a name="ln606"> </a>
+<a name="ln607">    break;</a>
+<a name="ln608">  }</a>
+<a name="ln609"> </a>
+<a name="ln610">  xfree(buf);</a>
+<a name="ln611">  return nlines;</a>
+<a name="ln612">}</a>
+<a name="ln613"> </a>
+<a name="ln614"> </a>
+<a name="ln615">/// Creates the actual cscope command query from what the user entered.</a>
+<a name="ln616">static char *cs_create_cmd(char *csoption, char *pattern)</a>
+<a name="ln617">{</a>
+<a name="ln618">  char *cmd;</a>
+<a name="ln619">  short search;</a>
+<a name="ln620">  char *pat;</a>
+<a name="ln621"> </a>
+<a name="ln622">  switch (csoption[0]) {</a>
+<a name="ln623">  case '0': case 's':</a>
+<a name="ln624">    search = 0;</a>
+<a name="ln625">    break;</a>
+<a name="ln626">  case '1': case 'g':</a>
+<a name="ln627">    search = 1;</a>
+<a name="ln628">    break;</a>
+<a name="ln629">  case '2': case 'd':</a>
+<a name="ln630">    search = 2;</a>
+<a name="ln631">    break;</a>
+<a name="ln632">  case '3': case 'c':</a>
+<a name="ln633">    search = 3;</a>
+<a name="ln634">    break;</a>
+<a name="ln635">  case '4': case 't':</a>
+<a name="ln636">    search = 4;</a>
+<a name="ln637">    break;</a>
+<a name="ln638">  case '6': case 'e':</a>
+<a name="ln639">    search = 6;</a>
+<a name="ln640">    break;</a>
+<a name="ln641">  case '7': case 'f':</a>
+<a name="ln642">    search = 7;</a>
+<a name="ln643">    break;</a>
+<a name="ln644">  case '8': case 'i':</a>
+<a name="ln645">    search = 8;</a>
+<a name="ln646">    break;</a>
+<a name="ln647">  case '9': case 'a':</a>
+<a name="ln648">    search = 9;</a>
+<a name="ln649">    break;</a>
+<a name="ln650">  default:</a>
+<a name="ln651">    (void)EMSG(_(&quot;E561: unknown cscope search type&quot;));</a>
+<a name="ln652">    cs_usage_msg(Find);</a>
+<a name="ln653">    return NULL;</a>
+<a name="ln654">  }</a>
+<a name="ln655"> </a>
+<a name="ln656">  // Skip white space before the patter, except for text and pattern search,</a>
+<a name="ln657">  // they may want to use the leading white space.</a>
+<a name="ln658">  pat = pattern;</a>
+<a name="ln659">  if (search != 4 &amp;&amp; search != 6)</a>
+<a name="ln660">    while (ascii_iswhite(*pat))</a>
+<a name="ln661">      ++pat;</a>
+<a name="ln662"> </a>
+<a name="ln663">  cmd = xmalloc(strlen(pat) + 2);</a>
+<a name="ln664"> </a>
+<a name="ln665">  (void)sprintf(cmd, &quot;%d%s&quot;, search, pat);</a>
+<a name="ln666"> </a>
+<a name="ln667">  return cmd;</a>
+<a name="ln668">}</a>
+<a name="ln669"> </a>
+<a name="ln670"> </a>
+<a name="ln671">/// This piece of code was taken/adapted from nvi.  do we need to add</a>
+<a name="ln672">/// the BSD license notice?</a>
+<a name="ln673">static int cs_create_connection(size_t i)</a>
+<a name="ln674">{</a>
+<a name="ln675">#ifdef UNIX</a>
+<a name="ln676">  int to_cs[2], from_cs[2];</a>
+<a name="ln677">#endif</a>
+<a name="ln678">  char        *prog, *cmd, *ppath = NULL;</a>
+<a name="ln679"> </a>
+<a name="ln680">#if defined(UNIX)</a>
+<a name="ln681">  /*</a>
+<a name="ln682">   * Cscope reads from to_cs[0] and writes to from_cs[1]; vi reads from</a>
+<a name="ln683">   * from_cs[0] and writes to to_cs[1].</a>
+<a name="ln684">   */</a>
+<a name="ln685">  to_cs[0] = to_cs[1] = from_cs[0] = from_cs[1] = -1;</a>
+<a name="ln686">  if (pipe(to_cs) &lt; 0 || pipe(from_cs) &lt; 0) {</a>
+<a name="ln687">    (void)EMSG(_(&quot;E566: Could not create cscope pipes&quot;));</a>
+<a name="ln688">err_closing:</a>
+<a name="ln689">    if (to_cs[0] != -1)</a>
+<a name="ln690">      (void)close(to_cs[0]);</a>
+<a name="ln691">    if (to_cs[1] != -1)</a>
+<a name="ln692">      (void)close(to_cs[1]);</a>
+<a name="ln693">    if (from_cs[0] != -1)</a>
+<a name="ln694">      (void)close(from_cs[0]);</a>
+<a name="ln695">    if (from_cs[1] != -1)</a>
+<a name="ln696">      (void)close(from_cs[1]);</a>
+<a name="ln697">    return CSCOPE_FAILURE;</a>
+<a name="ln698">  }</a>
+<a name="ln699"> </a>
+<a name="ln700">  switch (csinfo[i].pid = fork()) {</a>
+<a name="ln701">  case -1:</a>
+<a name="ln702">    (void)EMSG(_(&quot;E622: Could not fork for cscope&quot;));</a>
+<a name="ln703">    goto err_closing;</a>
+<a name="ln704">  case 0:                               // child: run cscope.</a>
+<a name="ln705">    if (dup2(to_cs[0], STDIN_FILENO) == -1) {</a>
+<a name="ln706">      PERROR(&quot;cs_create_connection 1&quot;);</a>
+<a name="ln707">    }</a>
+<a name="ln708">    if (dup2(from_cs[1], STDOUT_FILENO) == -1) {</a>
+<a name="ln709">      PERROR(&quot;cs_create_connection 2&quot;);</a>
+<a name="ln710">    }</a>
+<a name="ln711">    if (dup2(from_cs[1], STDERR_FILENO) == -1) {</a>
+<a name="ln712">      PERROR(&quot;cs_create_connection 3&quot;);</a>
+<a name="ln713">    }</a>
+<a name="ln714"> </a>
+<a name="ln715">    // close unused</a>
+<a name="ln716">    (void)close(to_cs[1]);</a>
+<a name="ln717">    (void)close(from_cs[0]);</a>
+<a name="ln718">#else</a>
+<a name="ln719">  // Create pipes to communicate with cscope</a>
+<a name="ln720">  int fd;</a>
+<a name="ln721">  SECURITY_ATTRIBUTES sa;</a>
+<a name="ln722">  PROCESS_INFORMATION pi;</a>
+<a name="ln723">  BOOL pipe_stdin = FALSE, pipe_stdout = FALSE;  // NOLINT(readability/bool)</a>
+<a name="ln724">  STARTUPINFO si;</a>
+<a name="ln725">  HANDLE stdin_rd, stdout_rd;</a>
+<a name="ln726">  HANDLE stdout_wr, stdin_wr;</a>
+<a name="ln727">  BOOL created;</a>
+<a name="ln728"> </a>
+<a name="ln729">  sa.nLength = sizeof(SECURITY_ATTRIBUTES);</a>
+<a name="ln730">  sa.bInheritHandle = TRUE;</a>
+<a name="ln731">  sa.lpSecurityDescriptor = NULL;</a>
+<a name="ln732"> </a>
+<a name="ln733">  if (!(pipe_stdin = CreatePipe(&amp;stdin_rd, &amp;stdin_wr, &amp;sa, 0))</a>
+<a name="ln734">      || !(pipe_stdout = CreatePipe(&amp;stdout_rd, &amp;stdout_wr, &amp;sa, 0))) {</a>
+<a name="ln735">    (void)EMSG(_(&quot;E566: Could not create cscope pipes&quot;));</a>
+<a name="ln736">err_closing:</a>
+<a name="ln737">    if (pipe_stdin) {</a>
+<a name="ln738">      CloseHandle(stdin_rd);</a>
+<a name="ln739">      CloseHandle(stdin_wr);</a>
+<a name="ln740">    }</a>
+<a name="ln741">    if (pipe_stdout) {</a>
+<a name="ln742">      CloseHandle(stdout_rd);</a>
+<a name="ln743">      CloseHandle(stdout_wr);</a>
+<a name="ln744">    }</a>
+<a name="ln745">    return CSCOPE_FAILURE;</a>
+<a name="ln746">  }</a>
+<a name="ln747">#endif</a>
+<a name="ln748">    // expand the cscope exec for env var's</a>
+<a name="ln749">    prog = xmalloc(MAXPATHL + 1);</a>
+<a name="ln750">    expand_env(p_csprg, (char_u *)prog, MAXPATHL);</a>
+<a name="ln751"> </a>
+<a name="ln752">    // alloc space to hold the cscope command</a>
+<a name="ln753">    size_t len = strlen(prog) + strlen(csinfo[i].fname) + 32;</a>
+<a name="ln754">    if (csinfo[i].ppath) {</a>
+<a name="ln755">      // expand the prepend path for env var's</a>
+<a name="ln756">      ppath = xmalloc(MAXPATHL + 1);</a>
+<a name="ln757">      expand_env((char_u *)csinfo[i].ppath, (char_u *)ppath, MAXPATHL);</a>
+<a name="ln758"> </a>
+<a name="ln759">      len += strlen(ppath);</a>
+<a name="ln760">    }</a>
+<a name="ln761"> </a>
+<a name="ln762">    if (csinfo[i].flags)</a>
+<a name="ln763">      len += strlen(csinfo[i].flags);</a>
+<a name="ln764"> </a>
+<a name="ln765">    cmd = xmalloc(len);</a>
+<a name="ln766"> </a>
+<a name="ln767">    // run the cscope command; is there execl for non-unix systems?</a>
+<a name="ln768">#if defined(UNIX)</a>
+<a name="ln769">    (void)snprintf(cmd, len, &quot;exec %s -dl -f %s&quot;, prog, csinfo[i].fname);</a>
+<a name="ln770">#else</a>
+<a name="ln771">    // WIN32</a>
+<a name="ln772">    (void)snprintf(cmd, len, &quot;%s -dl -f %s&quot;, prog, csinfo[i].fname);</a>
+<a name="ln773">#endif</a>
+<a name="ln774">    if (csinfo[i].ppath != NULL) {</a>
+<a name="ln775">      (void)strcat(cmd, &quot; -P&quot;);</a>
+<a name="ln776">      (void)strcat(cmd, csinfo[i].ppath);</a>
+<a name="ln777">    }</a>
+<a name="ln778">    if (csinfo[i].flags != NULL) {</a>
+<a name="ln779">      (void)strcat(cmd, &quot; &quot;);</a>
+<a name="ln780">      (void)strcat(cmd, csinfo[i].flags);</a>
+<a name="ln781">    }</a>
+<a name="ln782"># ifdef UNIX</a>
+<a name="ln783">    // on Win32 we still need prog</a>
+<a name="ln784">    xfree(prog);</a>
+<a name="ln785"># endif</a>
+<a name="ln786">    xfree(ppath);</a>
+<a name="ln787"> </a>
+<a name="ln788">#if defined(UNIX)</a>
+<a name="ln789"># if defined(HAVE_SETSID) || defined(HAVE_SETPGID)</a>
+<a name="ln790">    // Change our process group to avoid cscope receiving SIGWINCH.</a>
+<a name="ln791">#  if defined(HAVE_SETSID)</a>
+<a name="ln792">    (void)setsid();</a>
+<a name="ln793">#  else</a>
+<a name="ln794">    if (setpgid(0, 0) == -1)</a>
+<a name="ln795">      PERROR(_(&quot;cs_create_connection setpgid failed&quot;));</a>
+<a name="ln796">#  endif</a>
+<a name="ln797"># endif</a>
+<a name="ln798">    if (execl(&quot;/bin/sh&quot;, &quot;sh&quot;, &quot;-c&quot;, cmd, (char *)NULL) == -1)</a>
+<a name="ln799">      PERROR(_(&quot;cs_create_connection exec failed&quot;));</a>
+<a name="ln800"> </a>
+<a name="ln801">    exit(127);</a>
+<a name="ln802">  // NOTREACHED</a>
+<a name="ln803">  default:      // parent.</a>
+<a name="ln804">    // Save the file descriptors for later duplication, and</a>
+<a name="ln805">    // reopen as streams.</a>
+<a name="ln806">    if ((csinfo[i].to_fp = fdopen(to_cs[1], &quot;w&quot;)) == NULL) {</a>
+<a name="ln807">      PERROR(_(&quot;cs_create_connection: fdopen for to_fp failed&quot;));</a>
+<a name="ln808">    }</a>
+<a name="ln809">    if ((csinfo[i].fr_fp = fdopen(from_cs[0], &quot;r&quot;)) == NULL) {</a>
+<a name="ln810">      PERROR(_(&quot;cs_create_connection: fdopen for fr_fp failed&quot;));</a>
+<a name="ln811">    }</a>
+<a name="ln812"> </a>
+<a name="ln813">    // close unused</a>
+<a name="ln814">    (void)close(to_cs[0]);</a>
+<a name="ln815">    (void)close(from_cs[1]);</a>
+<a name="ln816"> </a>
+<a name="ln817">    break;</a>
+<a name="ln818">  }</a>
+<a name="ln819"> </a>
+<a name="ln820">#else</a>
+<a name="ln821">    // WIN32</a>
+<a name="ln822">    // Create a new process to run cscope and use pipes to talk with it</a>
+<a name="ln823">    GetStartupInfo(&amp;si);</a>
+<a name="ln824">    si.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;</a>
+<a name="ln825">    si.wShowWindow = SW_HIDE;  // Hide child application window</a>
+<a name="ln826">    si.hStdOutput = stdout_wr;</a>
+<a name="ln827">    si.hStdError  = stdout_wr;</a>
+<a name="ln828">    si.hStdInput  = stdin_rd;</a>
+<a name="ln829">    created = CreateProcess(NULL, cmd, NULL, NULL, TRUE, CREATE_NEW_CONSOLE,</a>
+<a name="ln830">        NULL, NULL, &amp;si, &amp;pi);</a>
+<a name="ln831">    xfree(prog);</a>
+<a name="ln832">    xfree(cmd);</a>
+<a name="ln833"> </a>
+<a name="ln834">    if (!created) {</a>
+<a name="ln835">      PERROR(_(&quot;cs_create_connection exec failed&quot;));</a>
+<a name="ln836">      (void)EMSG(_(&quot;E623: Could not spawn cscope process&quot;));</a>
+<a name="ln837">      goto err_closing;</a>
+<a name="ln838">    }</a>
+<a name="ln839">    // else</a>
+<a name="ln840">    csinfo[i].pid = pi.dwProcessId;</a>
+<a name="ln841">    csinfo[i].hProc = pi.hProcess;</a>
+<a name="ln842">    CloseHandle(pi.hThread);</a>
+<a name="ln843"> </a>
+<a name="ln844">    // TODO(neovim): tidy up after failure to create files on pipe handles.</a>
+<a name="ln845">    if (((fd = _open_osfhandle((intptr_t)stdin_wr, _O_TEXT|_O_APPEND)) &lt; 0)</a>
+<a name="ln846">        || ((csinfo[i].to_fp = _fdopen(fd, &quot;w&quot;)) == NULL)) {</a>
+<a name="ln847">      PERROR(_(&quot;cs_create_connection: fdopen for to_fp failed&quot;));</a>
+<a name="ln848">    }</a>
+<a name="ln849">    if (((fd = _open_osfhandle((intptr_t)stdout_rd,  _O_TEXT|_O_RDONLY)) &lt; 0)</a>
+<a name="ln850">        || ((csinfo[i].fr_fp = _fdopen(fd, &quot;r&quot;)) == NULL)) {</a>
+<a name="ln851">      PERROR(_(&quot;cs_create_connection: fdopen for fr_fp failed&quot;));</a>
+<a name="ln852">    }</a>
+<a name="ln853">    // Close handles for file descriptors inherited by the cscope process.</a>
+<a name="ln854">    CloseHandle(stdin_rd);</a>
+<a name="ln855">    CloseHandle(stdout_wr);</a>
+<a name="ln856"> </a>
+<a name="ln857">#endif  // !UNIX</a>
+<a name="ln858"> </a>
+<a name="ln859">  return CSCOPE_SUCCESS;</a>
+<a name="ln860">}</a>
+<a name="ln861"> </a>
+<a name="ln862"> </a>
+<a name="ln863">/// Query cscope using command line interface.  Parse the output and use tselect</a>
+<a name="ln864">/// to allow choices.  Like Nvi, creates a pipe to send to/from query/cscope.</a>
+<a name="ln865">///</a>
+<a name="ln866">/// @return TRUE if we jump to a tag or abort, FALSE if not.</a>
+<a name="ln867">static int cs_find(exarg_T *eap)</a>
+<a name="ln868">{</a>
+<a name="ln869">  char *opt, *pat;</a>
+<a name="ln870"> </a>
+<a name="ln871">  if (cs_check_for_connections() == FALSE) {</a>
+<a name="ln872">    (void)EMSG(_(&quot;E567: no cscope connections&quot;));</a>
+<a name="ln873">    return FALSE;</a>
+<a name="ln874">  }</a>
+<a name="ln875"> </a>
+<a name="ln876">  if ((opt = strtok((char *)NULL, (const char *)&quot; &quot;)) == NULL) {</a>
+<a name="ln877">    cs_usage_msg(Find);</a>
+<a name="ln878">    return FALSE;</a>
+<a name="ln879">  }</a>
+<a name="ln880"> </a>
+<a name="ln881">  pat = opt + strlen(opt) + 1;</a>
+<a name="ln882">  if (pat &gt;= (char *)eap-&gt;arg + eap_arg_len) {</a>
+<a name="ln883">    cs_usage_msg(Find);</a>
+<a name="ln884">    return FALSE;</a>
+<a name="ln885">  }</a>
+<a name="ln886"> </a>
+<a name="ln887">  /*</a>
+<a name="ln888">   * Let's replace the NULs written by strtok() with spaces - we need the</a>
+<a name="ln889">   * spaces to correctly display the quickfix/location list window's title.</a>
+<a name="ln890">   */</a>
+<a name="ln891">  for (int i = 0; i &lt; eap_arg_len; ++i)</a>
+<a name="ln892">    if (NUL == eap-&gt;arg[i])</a>
+<a name="ln893">      eap-&gt;arg[i] = ' ';</a>
+<a name="ln894"> </a>
+<a name="ln895">  return cs_find_common(opt, pat, eap-&gt;forceit, true,</a>
+<a name="ln896">                        eap-&gt;cmdidx == CMD_lcscope, *eap-&gt;cmdlinep);</a>
+<a name="ln897">}</a>
+<a name="ln898"> </a>
+<a name="ln899"> </a>
+<a name="ln900">/// Common code for cscope find, shared by cs_find() and ex_cstag().</a>
+<a name="ln901">static int cs_find_common(char *opt, char *pat, int forceit, int verbose,</a>
+<a name="ln902">                          int use_ll, char_u *cmdline)</a>
+<a name="ln903">{</a>
+<a name="ln904">  char *cmd;</a>
+<a name="ln905">  int *nummatches;</a>
+<a name="ln906">  size_t totmatches;</a>
+<a name="ln907">  char cmdletter;</a>
+<a name="ln908">  char *qfpos;</a>
+<a name="ln909"> </a>
+<a name="ln910">  // get cmd letter</a>
+<a name="ln911">  switch (opt[0]) {</a>
+<a name="ln912">  case '0':</a>
+<a name="ln913">    cmdletter = 's';</a>
+<a name="ln914">    break;</a>
+<a name="ln915">  case '1':</a>
+<a name="ln916">    cmdletter = 'g';</a>
+<a name="ln917">    break;</a>
+<a name="ln918">  case '2':</a>
+<a name="ln919">    cmdletter = 'd';</a>
+<a name="ln920">    break;</a>
+<a name="ln921">  case '3':</a>
+<a name="ln922">    cmdletter = 'c';</a>
+<a name="ln923">    break;</a>
+<a name="ln924">  case '4':</a>
+<a name="ln925">    cmdletter = 't';</a>
+<a name="ln926">    break;</a>
+<a name="ln927">  case '6':</a>
+<a name="ln928">    cmdletter = 'e';</a>
+<a name="ln929">    break;</a>
+<a name="ln930">  case '7':</a>
+<a name="ln931">    cmdletter = 'f';</a>
+<a name="ln932">    break;</a>
+<a name="ln933">  case '8':</a>
+<a name="ln934">    cmdletter = 'i';</a>
+<a name="ln935">    break;</a>
+<a name="ln936">  case '9':</a>
+<a name="ln937">    cmdletter = 'a';</a>
+<a name="ln938">    break;</a>
+<a name="ln939">  default:</a>
+<a name="ln940">    cmdletter = opt[0];</a>
+<a name="ln941">  }</a>
+<a name="ln942"> </a>
+<a name="ln943">  qfpos = (char *)vim_strchr(p_csqf, cmdletter);</a>
+<a name="ln944">  if (qfpos != NULL) {</a>
+<a name="ln945">    qfpos++;</a>
+<a name="ln946">    // next symbol must be + or -</a>
+<a name="ln947">    if (strchr(CSQF_FLAGS, *qfpos) == NULL) {</a>
+<a name="ln948">      char *nf = _(&quot;E469: invalid cscopequickfix flag %c for %c&quot;);</a>
+<a name="ln949">      // strlen will be enough because we use chars</a>
+<a name="ln950">      char *buf = xmalloc(strlen(nf));</a>
+<a name="ln951"> </a>
+<a name="ln952">      sprintf(buf, nf, *qfpos, *(qfpos-1));</a>
+<a name="ln953">      (void)EMSG(buf);</a>
+<a name="ln954">      xfree(buf);</a>
+<a name="ln955">      return FALSE;</a>
+<a name="ln956">    }</a>
+<a name="ln957"> </a>
+<a name="ln958">    if (*qfpos != '0'</a>
+<a name="ln959">        &amp;&amp; apply_autocmds(EVENT_QUICKFIXCMDPRE, (char_u *)&quot;cscope&quot;,</a>
+<a name="ln960">                          curbuf-&gt;b_fname, true, curbuf)) {</a>
+<a name="ln961">      if (aborting()) {</a>
+<a name="ln962">        return false;</a>
+<a name="ln963">      }</a>
+<a name="ln964">    }</a>
+<a name="ln965">  }</a>
+<a name="ln966"> </a>
+<a name="ln967">  // create the actual command to send to cscope</a>
+<a name="ln968">  cmd = cs_create_cmd(opt, pat);</a>
+<a name="ln969">  if (cmd == NULL)</a>
+<a name="ln970">    return FALSE;</a>
+<a name="ln971"> </a>
+<a name="ln972">  nummatches = xmalloc(sizeof(int) * csinfo_size);</a>
+<a name="ln973"> </a>
+<a name="ln974">  // Send query to all open connections, then count the total number</a>
+<a name="ln975">  // of matches so we can alloc all in one swell foop.</a>
+<a name="ln976">  for (size_t i = 0; i &lt; csinfo_size; i++) {</a>
+<a name="ln977">    nummatches[i] = 0;</a>
+<a name="ln978">  }</a>
+<a name="ln979">  totmatches = 0;</a>
+<a name="ln980">  for (size_t i = 0; i &lt; csinfo_size; i++) {</a>
+<a name="ln981">    if (csinfo[i].fname == NULL || csinfo[i].to_fp == NULL)</a>
+<a name="ln982">      continue;</a>
+<a name="ln983"> </a>
+<a name="ln984">    // send cmd to cscope</a>
+<a name="ln985">    (void)fprintf(csinfo[i].to_fp, &quot;%s\n&quot;, cmd);</a>
+<a name="ln986">    (void)fflush(csinfo[i].to_fp);</a>
+<a name="ln987"> </a>
+<a name="ln988">    nummatches[i] = cs_cnt_matches(i);</a>
+<a name="ln989"> </a>
+<a name="ln990">    if (nummatches[i] &gt; -1)</a>
+<a name="ln991">      totmatches += (size_t)nummatches[i];</a>
+<a name="ln992"> </a>
+<a name="ln993">    if (nummatches[i] == 0)</a>
+<a name="ln994">      (void)cs_read_prompt(i);</a>
+<a name="ln995">  }</a>
+<a name="ln996">  xfree(cmd);</a>
+<a name="ln997"> </a>
+<a name="ln998">  if (totmatches == 0) {</a>
+<a name="ln999">    char *nf = _(&quot;E259: no matches found for cscope query %s of %s&quot;);</a>
+<a name="ln1000">    char *buf;</a>
+<a name="ln1001"> </a>
+<a name="ln1002">    if (!verbose) {</a>
+<a name="ln1003">      xfree(nummatches);</a>
+<a name="ln1004">      return FALSE;</a>
+<a name="ln1005">    }</a>
+<a name="ln1006"> </a>
+<a name="ln1007">    buf = xmalloc(strlen(opt) + strlen(pat) + strlen(nf));</a>
+<a name="ln1008">    sprintf(buf, nf, opt, pat);</a>
+<a name="ln1009">    (void)EMSG(buf);</a>
+<a name="ln1010">    xfree(buf);</a>
+<a name="ln1011">    xfree(nummatches);</a>
+<a name="ln1012">    return FALSE;</a>
+<a name="ln1013">  }</a>
+<a name="ln1014"> </a>
+<a name="ln1015">  if (qfpos != NULL &amp;&amp; *qfpos != '0') {</a>
+<a name="ln1016">    // Fill error list.</a>
+<a name="ln1017">    FILE        *f;</a>
+<a name="ln1018">    char_u      *tmp = vim_tempname();</a>
+<a name="ln1019">    qf_info_T   *qi = NULL;</a>
+<a name="ln1020">    win_T       *wp = NULL;</a>
+<a name="ln1021"> </a>
+<a name="ln1022">    f = os_fopen((char *)tmp, &quot;w&quot;);</a>
+<a name="ln1023">    if (f == NULL) {</a>
+<a name="ln1024">      EMSG2(_(e_notopen), tmp);</a>
+<a name="ln1025">    } else {</a>
+<a name="ln1026">      cs_file_results(f, nummatches);</a>
+<a name="ln1027">      fclose(f);</a>
+<a name="ln1028">      if (use_ll) {         // Use location list</a>
+<a name="ln1029">        wp = curwin;</a>
+<a name="ln1030">      }</a>
+<a name="ln1031">      // '-' starts a new error list</a>
+<a name="ln1032">      if (qf_init(wp, tmp, (char_u *)&quot;%f%*\\t%l%*\\t%m&quot;,</a>
+<a name="ln1033">                  *qfpos == '-', cmdline, NULL) &gt; 0) {</a>
+<a name="ln1034">        if (postponed_split != 0) {</a>
+<a name="ln1035">          (void)win_split(postponed_split &gt; 0 ? postponed_split : 0,</a>
+<a name="ln1036">                          postponed_split_flags);</a>
+<a name="ln1037">          RESET_BINDING(curwin);</a>
+<a name="ln1038">          postponed_split = 0;</a>
+<a name="ln1039">        }</a>
+<a name="ln1040"> </a>
+<a name="ln1041">        apply_autocmds(EVENT_QUICKFIXCMDPOST, (char_u *)&quot;cscope&quot;,</a>
+<a name="ln1042">            curbuf-&gt;b_fname, TRUE, curbuf);</a>
+<a name="ln1043">        if (use_ll)</a>
+<a name="ln1044">          /*</a>
+<a name="ln1045">           * In the location list window, use the displayed location</a>
+<a name="ln1046">           * list. Otherwise, use the location list for the window.</a>
+<a name="ln1047">           */</a>
+<a name="ln1048">          qi = (bt_quickfix(wp-&gt;w_buffer) &amp;&amp; wp-&gt;w_llist_ref != NULL)</a>
+<a name="ln1049">               ?  wp-&gt;w_llist_ref : wp-&gt;w_llist;</a>
+<a name="ln1050">        qf_jump(qi, 0, 0, forceit);</a>
+<a name="ln1051">      }</a>
+<a name="ln1052">    }</a>
+<a name="ln1053">    os_remove((char *)tmp);</a>
+<a name="ln1054">    xfree(tmp);</a>
+<a name="ln1055">    xfree(nummatches);</a>
+<a name="ln1056">    return TRUE;</a>
+<a name="ln1057">  } else {</a>
+<a name="ln1058">    char **matches = NULL, **contexts = NULL;</a>
+<a name="ln1059">    size_t matched = 0;</a>
+<a name="ln1060"> </a>
+<a name="ln1061">    // read output</a>
+<a name="ln1062">    cs_fill_results((char *)pat, totmatches, nummatches, &amp;matches,</a>
+<a name="ln1063">        &amp;contexts, &amp;matched);</a>
+<a name="ln1064">    xfree(nummatches);</a>
+<a name="ln1065">    if (matches == NULL)</a>
+<a name="ln1066">      return FALSE;</a>
+<a name="ln1067"> </a>
+<a name="ln1068">    (void)cs_manage_matches(matches, contexts, matched, Store);</a>
+<a name="ln1069"> </a>
+<a name="ln1070">    return do_tag((char_u *)pat, DT_CSCOPE, 0, forceit, verbose);</a>
+<a name="ln1071">  }</a>
+<a name="ln1072">}</a>
+<a name="ln1073"> </a>
+<a name="ln1074">/// Print help.</a>
+<a name="ln1075">static int cs_help(exarg_T *eap)</a>
+<a name="ln1076">{</a>
+<a name="ln1077">  cscmd_T *cmdp = cs_cmds;</a>
+<a name="ln1078"> </a>
+<a name="ln1079">  (void)MSG_PUTS(_(&quot;cscope commands:\n&quot;));</a>
+<a name="ln1080">  while (cmdp-&gt;name != NULL) {</a>
+<a name="ln1081">    char *help = _(cmdp-&gt;help);</a>
+<a name="ln1082">    int space_cnt = 30 - vim_strsize((char_u *)help);</a>
+<a name="ln1083"> </a>
+<a name="ln1084">    // Use %*s rather than %30s to ensure proper alignment in utf-8</a>
+<a name="ln1085">    if (space_cnt &lt; 0) {</a>
+<a name="ln1086">      space_cnt = 0;</a>
+<a name="ln1087">    }</a>
+<a name="ln1088">    (void)smsg(_(&quot;%-5s: %s%*s (Usage: %s)&quot;),</a>
+<a name="ln1089">        cmdp-&gt;name,</a>
+<a name="ln1090">        help, space_cnt, &quot; &quot;,</a>
+<a name="ln1091">        cmdp-&gt;usage);</a>
+<a name="ln1092">    if (strcmp(cmdp-&gt;name, &quot;find&quot;) == 0)</a>
+<a name="ln1093">      MSG_PUTS(_(&quot;\n&quot;</a>
+<a name="ln1094">                 &quot;       a: Find assignments to this symbol\n&quot;</a>
+<a name="ln1095">                 &quot;       c: Find functions calling this function\n&quot;</a>
+<a name="ln1096">                 &quot;       d: Find functions called by this function\n&quot;</a>
+<a name="ln1097">                 &quot;       e: Find this egrep pattern\n&quot;</a>
+<a name="ln1098">                 &quot;       f: Find this file\n&quot;</a>
+<a name="ln1099">                 &quot;       g: Find this definition\n&quot;</a>
+<a name="ln1100">                 &quot;       i: Find files #including this file\n&quot;</a>
+<a name="ln1101">                 &quot;       s: Find this C symbol\n&quot;</a>
+<a name="ln1102">                 &quot;       t: Find this text string\n&quot;));</a>
+<a name="ln1103"> </a>
+<a name="ln1104">    cmdp++;</a>
+<a name="ln1105">  }</a>
+<a name="ln1106"> </a>
+<a name="ln1107">  wait_return(TRUE);</a>
+<a name="ln1108">  return CSCOPE_SUCCESS;</a>
+<a name="ln1109">}</a>
+<a name="ln1110"> </a>
+<a name="ln1111"> </a>
+<a name="ln1112">static void clear_csinfo(size_t i)</a>
+<a name="ln1113">{</a>
+<a name="ln1114">  csinfo[i].fname  = NULL;</a>
+<a name="ln1115">  csinfo[i].ppath  = NULL;</a>
+<a name="ln1116">  csinfo[i].flags  = NULL;</a>
+<a name="ln1117">  csinfo[i].file_id = FILE_ID_EMPTY;</a>
+<a name="ln1118">  csinfo[i].pid    = 0;</a>
+<a name="ln1119">  csinfo[i].fr_fp  = NULL;</a>
+<a name="ln1120">  csinfo[i].to_fp  = NULL;</a>
+<a name="ln1121">}</a>
+<a name="ln1122"> </a>
+<a name="ln1123">/// Insert a new cscope database filename into the filelist.</a>
+<a name="ln1124">static int cs_insert_filelist(char *fname, char *ppath, char *flags,</a>
+<a name="ln1125">                              FileInfo *file_info)</a>
+<a name="ln1126">{</a>
+<a name="ln1127">  size_t i = 0;</a>
+<a name="ln1128">  bool empty_found = false;</a>
+<a name="ln1129"> </a>
+<a name="ln1130">  for (size_t j = 0; j &lt; csinfo_size; j++) {</a>
+<a name="ln1131">    if (csinfo[j].fname != NULL</a>
+<a name="ln1132">        &amp;&amp; os_fileid_equal_fileinfo(&amp;(csinfo[j].file_id), file_info)) {</a>
+<a name="ln1133">      if (p_csverbose)</a>
+<a name="ln1134">        (void)EMSG(_(&quot;E568: duplicate cscope database not added&quot;));</a>
+<a name="ln1135">      return CSCOPE_FAILURE;</a>
+<a name="ln1136">    }</a>
+<a name="ln1137"> </a>
+<a name="ln1138">    if (csinfo[j].fname == NULL &amp;&amp; !empty_found) {</a>
+<a name="ln1139">      i = j;       // remember first empty entry</a>
+<a name="ln1140">      empty_found = true;</a>
+<a name="ln1141">    }</a>
+<a name="ln1142">  }</a>
+<a name="ln1143"> </a>
+<a name="ln1144">  if (!empty_found) {</a>
+<a name="ln1145">    i = csinfo_size;</a>
+<a name="ln1146">    if (csinfo_size == 0) {</a>
+<a name="ln1147">      // First time allocation: allocate only 1 connection. It should</a>
+<a name="ln1148">      // be enough for most users.  If more is needed, csinfo will be</a>
+<a name="ln1149">      // reallocated.</a>
+<a name="ln1150">      csinfo_size = 1;</a>
+<a name="ln1151">      csinfo = xcalloc(1, sizeof(csinfo_T));</a>
+<a name="ln1152">    } else {</a>
+<a name="ln1153">      // Reallocate space for more connections.</a>
+<a name="ln1154">      csinfo_size *= 2;</a>
+<a name="ln1155">      csinfo = xrealloc(csinfo, sizeof(csinfo_T)*csinfo_size);</a>
+<a name="ln1156">    }</a>
+<a name="ln1157">    for (size_t j = csinfo_size/2; j &lt; csinfo_size; j++)</a>
+<a name="ln1158">      clear_csinfo(j);</a>
+<a name="ln1159">  }</a>
+<a name="ln1160"> </a>
+<a name="ln1161">  csinfo[i].fname = xmalloc(strlen(fname) + 1);</a>
+<a name="ln1162"> </a>
+<a name="ln1163">  (void)strcpy(csinfo[i].fname, (const char *)fname);</a>
+<a name="ln1164"> </a>
+<a name="ln1165">  if (ppath != NULL) {</a>
+<a name="ln1166">    csinfo[i].ppath = xmalloc(strlen(ppath) + 1);</a>
+<a name="ln1167">    (void)strcpy(csinfo[i].ppath, (const char *)ppath);</a>
+<a name="ln1168">  } else</a>
+<a name="ln1169">    csinfo[i].ppath = NULL;</a>
+<a name="ln1170"> </a>
+<a name="ln1171">  if (flags != NULL) {</a>
+<a name="ln1172">    csinfo[i].flags = xmalloc(strlen(flags) + 1);</a>
+<a name="ln1173">    (void)strcpy(csinfo[i].flags, (const char *)flags);</a>
+<a name="ln1174">  } else</a>
+<a name="ln1175">    csinfo[i].flags = NULL;</a>
+<a name="ln1176"> </a>
+<a name="ln1177">  os_fileinfo_id(file_info, &amp;(csinfo[i].file_id));</a>
+<a name="ln1178">  assert(i &lt;= INT_MAX);</a>
+<a name="ln1179">  return (int)i;</a>
+<a name="ln1180">}</a>
+<a name="ln1181"> </a>
+<a name="ln1182"> </a>
+<a name="ln1183">/// Find cscope command in command table.</a>
+<a name="ln1184">static cscmd_T * cs_lookup_cmd(exarg_T *eap)</a>
+<a name="ln1185">{</a>
+<a name="ln1186">  cscmd_T *cmdp;</a>
+<a name="ln1187">  char *stok;</a>
+<a name="ln1188">  size_t len;</a>
+<a name="ln1189"> </a>
+<a name="ln1190">  if (eap-&gt;arg == NULL)</a>
+<a name="ln1191">    return NULL;</a>
+<a name="ln1192"> </a>
+<a name="ln1193">  // Store length of eap-&gt;arg before it gets modified by strtok().</a>
+<a name="ln1194">  eap_arg_len = (int)STRLEN(eap-&gt;arg);</a>
+<a name="ln1195"> </a>
+<a name="ln1196">  if ((stok = strtok((char *)(eap-&gt;arg), (const char *)&quot; &quot;)) == NULL)</a>
+<a name="ln1197">    return NULL;</a>
+<a name="ln1198"> </a>
+<a name="ln1199">  len = strlen(stok);</a>
+<a name="ln1200">  for (cmdp = cs_cmds; cmdp-&gt;name != NULL; ++cmdp) {</a>
+<a name="ln1201">    if (strncmp((const char *)(stok), cmdp-&gt;name, len) == 0)</a>
+<a name="ln1202">      return cmdp;</a>
+<a name="ln1203">  }</a>
+<a name="ln1204">  return NULL;</a>
+<a name="ln1205">}</a>
+<a name="ln1206"> </a>
+<a name="ln1207"> </a>
+<a name="ln1208">/// Nuke em.</a>
+<a name="ln1209">static int cs_kill(exarg_T *eap)</a>
+<a name="ln1210">{</a>
+<a name="ln1211">  char *stok;</a>
+<a name="ln1212">  int num;</a>
+<a name="ln1213">  size_t i = 0;</a>
+<a name="ln1214">  bool killall = false;</a>
+<a name="ln1215"> </a>
+<a name="ln1216">  if ((stok = strtok((char *)NULL, (const char *)&quot; &quot;)) == NULL) {</a>
+<a name="ln1217">    cs_usage_msg(Kill);</a>
+<a name="ln1218">    return CSCOPE_FAILURE;</a>
+<a name="ln1219">  }</a>
+<a name="ln1220"> </a>
+<a name="ln1221">  // Check if string is a number, only single digit</a>
+<a name="ln1222">  // positive and negative integers are allowed</a>
+<a name="ln1223">  if ((strlen(stok) &lt; 2 &amp;&amp; ascii_isdigit((int)(stok[0])))</a>
+<a name="ln1224">      || (strlen(stok) &lt; 3 &amp;&amp; stok[0] == '-'</a>
+<a name="ln1225">          &amp;&amp; ascii_isdigit((int)(stok[1])))) {</a>
+<a name="ln1226">    num = atoi(stok);</a>
+<a name="ln1227">    if (num == -1)</a>
+<a name="ln1228">      killall = true;</a>
+<a name="ln1229">    else if (num &gt;= 0) {</a>
+<a name="ln1230">      i = (size_t)num;</a>
+<a name="ln1231">    } else {      // All negative values besides -1 are invalid.</a>
+<a name="ln1232">      if (p_csverbose)</a>
+<a name="ln1233">        (void)EMSG2(_(&quot;E261: cscope connection %s not found&quot;), stok);</a>
+<a name="ln1234">      return CSCOPE_FAILURE;</a>
+<a name="ln1235">    }</a>
+<a name="ln1236">  } else {</a>
+<a name="ln1237">    // Else it must be part of a name.  We will try to find a match</a>
+<a name="ln1238">    // within all the names in the csinfo data structure</a>
+<a name="ln1239">    for (i = 0; i &lt; csinfo_size; i++) {</a>
+<a name="ln1240">      if (csinfo[i].fname != NULL &amp;&amp; strstr(csinfo[i].fname, stok))</a>
+<a name="ln1241">        break;</a>
+<a name="ln1242">    }</a>
+<a name="ln1243">  }</a>
+<a name="ln1244"> </a>
+<a name="ln1245">  if (!killall &amp;&amp; (i &gt;= csinfo_size || csinfo[i].fname == NULL)) {</a>
+<a name="ln1246">    if (p_csverbose) {</a>
+<a name="ln1247">      (void)EMSG2(_(&quot;E261: cscope connection %s not found&quot;), stok);</a>
+<a name="ln1248">    }</a>
+<a name="ln1249">    return CSCOPE_FAILURE;</a>
+<a name="ln1250">  } else {</a>
+<a name="ln1251">    if (killall) {</a>
+<a name="ln1252">      for (i = 0; i &lt; csinfo_size; i++) {</a>
+<a name="ln1253">        if (csinfo[i].fname)</a>
+<a name="ln1254">          cs_kill_execute(i, csinfo[i].fname);</a>
+<a name="ln1255">      }</a>
+<a name="ln1256">    } else {</a>
+<a name="ln1257">      cs_kill_execute((size_t)i, stok);</a>
+<a name="ln1258">    }</a>
+<a name="ln1259">  }</a>
+<a name="ln1260"> </a>
+<a name="ln1261">  return CSCOPE_SUCCESS;</a>
+<a name="ln1262">}</a>
+<a name="ln1263"> </a>
+<a name="ln1264"> </a>
+<a name="ln1265">/// Actually kills a specific cscope connection.</a>
+<a name="ln1266">static void cs_kill_execute(</a>
+<a name="ln1267">    size_t i,              // cscope table index</a>
+<a name="ln1268">    char *cname        // cscope database name</a>
+<a name="ln1269">)</a>
+<a name="ln1270">{</a>
+<a name="ln1271">  if (p_csverbose) {</a>
+<a name="ln1272">    msg_clr_eos();</a>
+<a name="ln1273">    (void)smsg_attr(HL_ATTR(HLF_R) | MSG_HIST,</a>
+<a name="ln1274">                    _(&quot;cscope connection %s closed&quot;), cname);</a>
+<a name="ln1275">  }</a>
+<a name="ln1276">  cs_release_csp(i, TRUE);</a>
+<a name="ln1277">}</a>
+<a name="ln1278"> </a>
+<a name="ln1279"> </a>
+<a name="ln1280">/// Convert the cscope output into a ctags style entry (as might be found</a>
+<a name="ln1281">/// in a ctags tags file).  there's one catch though: cscope doesn't tell you</a>
+<a name="ln1282">/// the type of the tag you are looking for.  for example, in Darren Hiebert's</a>
+<a name="ln1283">/// ctags (the one that comes with vim), #define's use a line number to find the</a>
+<a name="ln1284">/// tag in a file while function definitions use a regexp search pattern.</a>
+<a name="ln1285">///</a>
+<a name="ln1286">/// I'm going to always use the line number because cscope does something</a>
+<a name="ln1287">/// quirky (and probably other things i don't know about):</a>
+<a name="ln1288">///</a>
+<a name="ln1289">///     if you have &quot;#  define&quot; in your source file, which is</a>
+<a name="ln1290">///     perfectly legal, cscope thinks you have &quot;#define&quot;.  this</a>
+<a name="ln1291">///     will result in a failed regexp search. :(</a>
+<a name="ln1292">///</a>
+<a name="ln1293">/// Besides, even if this particular case didn't happen, the search pattern</a>
+<a name="ln1294">/// would still have to be modified to escape all the special regular expression</a>
+<a name="ln1295">/// characters to comply with ctags formatting.</a>
+<a name="ln1296">static char *cs_make_vim_style_matches(char *fname, char *slno, char *search,</a>
+<a name="ln1297">                                       char *tagstr)</a>
+<a name="ln1298">{</a>
+<a name="ln1299">  // vim style is ctags:</a>
+<a name="ln1300">  //</a>
+<a name="ln1301">  //        &lt;tagstr&gt;\t&lt;filename&gt;\t&lt;linenum_or_search&gt;&quot;\t&lt;extra&gt;</a>
+<a name="ln1302">  //</a>
+<a name="ln1303">  // but as mentioned above, we'll always use the line number and</a>
+<a name="ln1304">  // put the search pattern (if one exists) as &quot;extra&quot;</a>
+<a name="ln1305">  //</a>
+<a name="ln1306">  // buf is used as part of vim's method of handling tags, and</a>
+<a name="ln1307">  // (i think) vim frees it when you pop your tags and get replaced</a>
+<a name="ln1308">  // by new ones on the tag stack.</a>
+<a name="ln1309">  char *buf;</a>
+<a name="ln1310">  size_t amt;</a>
+<a name="ln1311"> </a>
+<a name="ln1312">  if (search != NULL) {</a>
+<a name="ln1313">    amt = strlen(fname) + strlen(slno) + strlen(tagstr) + strlen(search) + 6;</a>
+<a name="ln1314">    buf = xmalloc(amt);</a>
+<a name="ln1315"> </a>
+<a name="ln1316">    (void)sprintf(buf, &quot;%s\t%s\t%s;\&quot;\t%s&quot;, tagstr, fname, slno, search);</a>
+<a name="ln1317">  } else {</a>
+<a name="ln1318">    amt = strlen(fname) + strlen(slno) + strlen(tagstr) + 5;</a>
+<a name="ln1319">    buf = xmalloc(amt);</a>
+<a name="ln1320"> </a>
+<a name="ln1321">    (void)sprintf(buf, &quot;%s\t%s\t%s;\&quot;&quot;, tagstr, fname, slno);</a>
+<a name="ln1322">  }</a>
+<a name="ln1323"> </a>
+<a name="ln1324">  return buf;</a>
+<a name="ln1325">}</a>
+<a name="ln1326"> </a>
+<a name="ln1327"> </a>
+<a name="ln1328">/// This is kind of hokey, but i don't see an easy way round this.</a>
+<a name="ln1329">///</a>
+<a name="ln1330">/// Store: keep a ptr to the (malloc'd) memory of matches originally</a>
+<a name="ln1331">/// generated from cs_find().  the matches are originally lines directly</a>
+<a name="ln1332">/// from cscope output, but transformed to look like something out of a</a>
+<a name="ln1333">/// ctags.  see cs_make_vim_style_matches for more details.</a>
+<a name="ln1334">///</a>
+<a name="ln1335">/// Get: used only from cs_fgets(), this simulates a vim_fgets() to return</a>
+<a name="ln1336">/// the next line from the cscope output.  it basically keeps track of which</a>
+<a name="ln1337">/// lines have been &quot;used&quot; and returns the next one.</a>
+<a name="ln1338">///</a>
+<a name="ln1339">/// Free: frees up everything and resets</a>
+<a name="ln1340">///</a>
+<a name="ln1341">/// Print: prints the tags</a>
+<a name="ln1342">static char *cs_manage_matches(char **matches, char **contexts,</a>
+<a name="ln1343">                               size_t totmatches, mcmd_e cmd)</a>
+<a name="ln1344">{</a>
+<a name="ln1345">  static char **mp = NULL;</a>
+<a name="ln1346">  static char **cp = NULL;</a>
+<a name="ln1347">  static size_t cnt = 0;</a>
+<a name="ln1348">  static size_t next = 0;</a>
+<a name="ln1349">  char *p = NULL;</a>
+<a name="ln1350"> </a>
+<a name="ln1351">  switch (cmd) {</a>
+<a name="ln1352">  case Store:</a>
+<a name="ln1353">    assert(matches != NULL);</a>
+<a name="ln1354">    assert(totmatches &gt; 0);</a>
+<a name="ln1355">    if (mp != NULL || cp != NULL)</a>
+<a name="ln1356">      (void)cs_manage_matches(NULL, NULL, 0, Free);</a>
+<a name="ln1357">    mp = matches;</a>
+<a name="ln1358">    cp = contexts;</a>
+<a name="ln1359">    cnt = totmatches;</a>
+<a name="ln1360">    next = 0;</a>
+<a name="ln1361">    break;</a>
+<a name="ln1362">  case Get:</a>
+<a name="ln1363">    if (next &gt;= cnt)</a>
+<a name="ln1364">      return NULL;</a>
+<a name="ln1365"> </a>
+<a name="ln1366">    p = mp[next];</a>
+<a name="ln1367">    next++;</a>
+<a name="ln1368">    break;</a>
+<a name="ln1369">  case Free:</a>
+<a name="ln1370">    if (mp != NULL) {</a>
+<a name="ln1371">      while (cnt--) {</a>
+<a name="ln1372">        xfree(mp[cnt]);</a>
+<a name="ln1373">        if (cp != NULL)</a>
+<a name="ln1374">          xfree(cp[cnt]);</a>
+<a name="ln1375">      }</a>
+<a name="ln1376">      xfree(mp);</a>
+<a name="ln1377">      xfree(cp);</a>
+<a name="ln1378">    }</a>
+<a name="ln1379">    mp = NULL;</a>
+<a name="ln1380">    cp = NULL;</a>
+<a name="ln1381">    cnt = 0;</a>
+<a name="ln1382">    next = 0;</a>
+<a name="ln1383">    break;</a>
+<a name="ln1384">  case Print:</a>
+<a name="ln1385">    assert(mp != NULL);</a>
+<a name="ln1386">    assert(cp != NULL);</a>
+<a name="ln1387">    cs_print_tags_priv(mp, cp, cnt);</a>
+<a name="ln1388">    break;</a>
+<a name="ln1389">  default:      // should not reach here</a>
+<a name="ln1390">    IEMSG(_(&quot;E570: fatal error in cs_manage_matches&quot;));</a>
+<a name="ln1391">    return NULL;</a>
+<a name="ln1392">  }</a>
+<a name="ln1393"> </a>
+<a name="ln1394">  return p;</a>
+<a name="ln1395">}</a>
+<a name="ln1396"> </a>
+<a name="ln1397"> </a>
+<a name="ln1398">/// Parse cscope output.</a>
+<a name="ln1399">static char *cs_parse_results(size_t cnumber, char *buf, int bufsize,</a>
+<a name="ln1400">                              char **context, char **linenumber, char **search)</a>
+<a name="ln1401">{</a>
+<a name="ln1402">  int ch;</a>
+<a name="ln1403">  char *p;</a>
+<a name="ln1404">  char *name;</a>
+<a name="ln1405"> </a>
+<a name="ln1406">retry:</a>
+<a name="ln1407">  errno = 0;</a>
+<a name="ln1408">  if (fgets(buf, bufsize, csinfo[cnumber].fr_fp) == NULL) {</a>
+<a name="ln1409">    if (errno == EINTR) {</a>
+<a name="ln1410">      goto retry;</a>
+<a name="ln1411">    }</a>
+<a name="ln1412"> </a>
+<a name="ln1413">    if (feof(csinfo[cnumber].fr_fp)) {</a>
+<a name="ln1414">      errno = EIO;</a>
+<a name="ln1415">    }</a>
+<a name="ln1416"> </a>
+<a name="ln1417">    cs_reading_emsg(cnumber);</a>
+<a name="ln1418"> </a>
+<a name="ln1419">    return NULL;</a>
+<a name="ln1420">  }</a>
+<a name="ln1421"> </a>
+<a name="ln1422">  // If the line's too long for the buffer, discard it.</a>
+<a name="ln1423">  if ((p = strchr(buf, '\n')) == NULL) {</a>
+<a name="ln1424">    while ((ch = getc(csinfo[cnumber].fr_fp)) != EOF &amp;&amp; ch != '\n')</a>
+<a name="ln1425">      ;</a>
+<a name="ln1426">    return NULL;</a>
+<a name="ln1427">  }</a>
+<a name="ln1428">  *p = '\0';</a>
+<a name="ln1429"> </a>
+<a name="ln1430">  /*</a>
+<a name="ln1431">   * cscope output is in the following format:</a>
+<a name="ln1432">   *</a>
+<a name="ln1433">   *	&lt;filename&gt; &lt;context&gt; &lt;line number&gt; &lt;pattern&gt;</a>
+<a name="ln1434">   */</a>
+<a name="ln1435">  if ((name = strtok((char *)buf, (const char *)&quot; &quot;)) == NULL)</a>
+<a name="ln1436">    return NULL;</a>
+<a name="ln1437">  if ((*context = strtok(NULL, (const char *)&quot; &quot;)) == NULL)</a>
+<a name="ln1438">    return NULL;</a>
+<a name="ln1439">  if ((*linenumber = strtok(NULL, (const char *)&quot; &quot;)) == NULL)</a>
+<a name="ln1440">    return NULL;</a>
+<a name="ln1441">  *search = *linenumber + strlen(*linenumber) + 1;      // +1 to skip \0</a>
+<a name="ln1442"> </a>
+<a name="ln1443">  // --- nvi ---</a>
+<a name="ln1444">  // If the file is older than the cscope database, that is,</a>
+<a name="ln1445">  // the database was built since the file was last modified,</a>
+<a name="ln1446">  // or there wasn't a search string, use the line number.</a>
+<a name="ln1447">  if (strcmp(*search, &quot;&lt;unknown&gt;&quot;) == 0) {</a>
+<a name="ln1448">    *search = NULL;</a>
+<a name="ln1449">  }</a>
+<a name="ln1450"> </a>
+<a name="ln1451">  name = cs_resolve_file(cnumber, name);</a>
+<a name="ln1452">  return name;</a>
+<a name="ln1453">}</a>
+<a name="ln1454"> </a>
+<a name="ln1455">/// Write cscope find results to file.</a>
+<a name="ln1456">static void cs_file_results(FILE *f, int *nummatches_a)</a>
+<a name="ln1457">{</a>
+<a name="ln1458">  char *search, *slno;</a>
+<a name="ln1459">  char *fullname;</a>
+<a name="ln1460">  char *cntx;</a>
+<a name="ln1461">  char *context;</a>
+<a name="ln1462"> </a>
+<a name="ln1463">  char *buf = xmalloc(CSREAD_BUFSIZE);</a>
+<a name="ln1464"> </a>
+<a name="ln1465">  for (size_t i = 0; i &lt; csinfo_size; i++) {</a>
+<a name="ln1466">    if (nummatches_a[i] &lt; 1)</a>
+<a name="ln1467">      continue;</a>
+<a name="ln1468"> </a>
+<a name="ln1469">    for (int j = 0; j &lt; nummatches_a[i]; j++) {</a>
+<a name="ln1470">      if ((fullname = cs_parse_results(i, buf, CSREAD_BUFSIZE, &amp;cntx,</a>
+<a name="ln1471">               &amp;slno, &amp;search)) == NULL)</a>
+<a name="ln1472">        continue;</a>
+<a name="ln1473"> </a>
+<a name="ln1474">      context = xmalloc(strlen(cntx) + 5);</a>
+<a name="ln1475"> </a>
+<a name="ln1476">      if (strcmp(cntx, &quot;&lt;global&gt;&quot;)==0)</a>
+<a name="ln1477">        strcpy(context, &quot;&lt;&lt;global&gt;&gt;&quot;);</a>
+<a name="ln1478">      else</a>
+<a name="ln1479">        sprintf(context, &quot;&lt;&lt;%s&gt;&gt;&quot;, cntx);</a>
+<a name="ln1480"> </a>
+<a name="ln1481">      if (search == NULL)</a>
+<a name="ln1482">        fprintf(f, &quot;%s\t%s\t%s\n&quot;, fullname, slno, context);</a>
+<a name="ln1483">      else</a>
+<a name="ln1484">        fprintf(f, &quot;%s\t%s\t%s %s\n&quot;, fullname, slno, context, search);</a>
+<a name="ln1485"> </a>
+<a name="ln1486">      xfree(context);</a>
+<a name="ln1487">      xfree(fullname);</a>
+<a name="ln1488">    }     // for all matches</a>
+<a name="ln1489"> </a>
+<a name="ln1490">    (void)cs_read_prompt(i);</a>
+<a name="ln1491">  }   // for all cscope connections</a>
+<a name="ln1492">  xfree(buf);</a>
+<a name="ln1493">}</a>
+<a name="ln1494"> </a>
+<a name="ln1495">/// Get parsed cscope output and calls cs_make_vim_style_matches to convert</a>
+<a name="ln1496">/// into ctags format.</a>
+<a name="ln1497">/// When there are no matches sets &quot;*matches_p&quot; to NULL.</a>
+<a name="ln1498">static void cs_fill_results(char *tagstr, size_t totmatches, int *nummatches_a,</a>
+<a name="ln1499">                            char ***matches_p, char ***cntxts_p,</a>
+<a name="ln1500">                            size_t *matched)</a>
+<a name="ln1501">{</a>
+<a name="ln1502">  char *buf;</a>
+<a name="ln1503">  char *search, *slno;</a>
+<a name="ln1504">  size_t totsofar = 0;</a>
+<a name="ln1505">  char **matches = NULL;</a>
+<a name="ln1506">  char **cntxts = NULL;</a>
+<a name="ln1507">  char *fullname;</a>
+<a name="ln1508">  char *cntx;</a>
+<a name="ln1509"> </a>
+<a name="ln1510">  assert(totmatches &gt; 0);</a>
+<a name="ln1511"> </a>
+<a name="ln1512">  buf = xmalloc(CSREAD_BUFSIZE);</a>
+<a name="ln1513">  matches = xmalloc(sizeof(char *) * (size_t)totmatches);</a>
+<a name="ln1514">  cntxts = xmalloc(sizeof(char *) * (size_t)totmatches);</a>
+<a name="ln1515"> </a>
+<a name="ln1516">  for (size_t i = 0; i &lt; csinfo_size; i++) {</a>
+<a name="ln1517">    if (nummatches_a[i] &lt; 1)</a>
+<a name="ln1518">      continue;</a>
+<a name="ln1519"> </a>
+<a name="ln1520">    for (int j = 0; j &lt; nummatches_a[i]; j++) {</a>
+<a name="ln1521">      if ((fullname = cs_parse_results(i, buf, CSREAD_BUFSIZE, &amp;cntx,</a>
+<a name="ln1522">               &amp;slno, &amp;search)) == NULL)</a>
+<a name="ln1523">        continue;</a>
+<a name="ln1524"> </a>
+<a name="ln1525">      matches[totsofar] = cs_make_vim_style_matches(fullname, slno, search,</a>
+<a name="ln1526">                                                    tagstr);</a>
+<a name="ln1527"> </a>
+<a name="ln1528">      xfree(fullname);</a>
+<a name="ln1529"> </a>
+<a name="ln1530">      if (strcmp(cntx, &quot;&lt;global&gt;&quot;) == 0)</a>
+<a name="ln1531">        cntxts[totsofar] = NULL;</a>
+<a name="ln1532">      else {</a>
+<a name="ln1533">        cntxts[totsofar] = xstrdup(cntx);</a>
+<a name="ln1534">      }</a>
+<a name="ln1535"> </a>
+<a name="ln1536">      totsofar++;</a>
+<a name="ln1537">    }     // for all matches</a>
+<a name="ln1538"> </a>
+<a name="ln1539">    (void)cs_read_prompt(i);</a>
+<a name="ln1540">  }   // for all cscope connections</a>
+<a name="ln1541"> </a>
+<a name="ln1542">  if (totsofar == 0) {</a>
+<a name="ln1543">    // No matches, free the arrays and return NULL in &quot;*matches_p&quot;.</a>
+<a name="ln1544">    XFREE_CLEAR(matches);</a>
+<a name="ln1545">    XFREE_CLEAR(cntxts);</a>
+<a name="ln1546">  }</a>
+<a name="ln1547">  *matched = totsofar;</a>
+<a name="ln1548">  *matches_p = matches;</a>
+<a name="ln1549">  *cntxts_p = cntxts;</a>
+<a name="ln1550"> </a>
+<a name="ln1551">  xfree(buf);</a>
+<a name="ln1552">}</a>
+<a name="ln1553"> </a>
+<a name="ln1554"> </a>
+<a name="ln1555">// get the requested path components</a>
+<a name="ln1556">static char *cs_pathcomponents(char *path)</a>
+<a name="ln1557">{</a>
+<a name="ln1558">  if (p_cspc == 0) {</a>
+<a name="ln1559">    return path;</a>
+<a name="ln1560">  }</a>
+<a name="ln1561"> </a>
+<a name="ln1562">  char *s = path + strlen(path) - 1;</a>
+<a name="ln1563">  for (int i = 0; i &lt; p_cspc; i++) {</a>
+<a name="ln1564">    while (s &gt; path &amp;&amp; *--s != '/') {</a>
+<a name="ln1565">      continue;</a>
+<a name="ln1566">    }</a>
+<a name="ln1567">  }</a>
+<a name="ln1568">  if ((s &gt; path &amp;&amp; *s == '/')) {</a>
+<a name="ln1569">    s++;</a>
+<a name="ln1570">  }</a>
+<a name="ln1571">  return s;</a>
+<a name="ln1572">}</a>
+<a name="ln1573"> </a>
+<a name="ln1574">/// Print cscope output that was converted into ctags style entries.</a>
+<a name="ln1575">///</a>
+<a name="ln1576">/// Only called from cs_manage_matches().</a>
+<a name="ln1577">///</a>
+<a name="ln1578">/// @param matches     Array of cscope lines in ctags style. Every entry was</a>
+<a name="ln1579">//                     produced with a format string of the form</a>
+<a name="ln1580">//                          &quot;%s\t%s\t%s;\&quot;\t%s&quot; or</a>
+<a name="ln1581">//                          &quot;%s\t%s\t%s;\&quot;&quot;</a>
+<a name="ln1582">//                     by cs_make_vim_style_matches().</a>
+<a name="ln1583">/// @param cntxts      Context for matches.</a>
+<a name="ln1584">/// @param num_matches Number of entries in matches/cntxts, always greater 0.</a>
+<a name="ln1585">static void cs_print_tags_priv(char **matches, char **cntxts,</a>
+<a name="ln1586">                               size_t num_matches) FUNC_ATTR_NONNULL_ALL</a>
+<a name="ln1587">{</a>
+<a name="ln1588">  char *globalcntx = &quot;GLOBAL&quot;;</a>
+<a name="ln1589">  char *cstag_msg = _(&quot;Cscope tag: %s&quot;);</a>
+<a name="ln1590"> </a>
+<a name="ln1591">  assert(num_matches &gt; 0);</a>
+<a name="ln1592">  assert(strcnt(matches[0], '\t') &gt;= 2);</a>
+<a name="ln1593"> </a>
+<a name="ln1594">  char *ptag = matches[0];</a>
+<a name="ln1595">  char *ptag_end = strchr(ptag, '\t');</a>
+<a name="ln1596">  assert(ptag_end &gt;= ptag);</a>
+<a name="ln1597">  // NUL terminate tag string in matches[0].</a>
+<a name="ln1598">  *ptag_end = NUL;</a>
+<a name="ln1599"> </a>
+<a name="ln1600">  // The &quot;%s&quot; in cstag_msg won't appear in the result string, so we don't need</a>
+<a name="ln1601">  // extra memory for terminating NUL.</a>
+<a name="ln1602">  size_t newsize = strlen(cstag_msg) + (size_t)(ptag_end - ptag);</a>
+<a name="ln1603">  char *buf = xmalloc(newsize);</a>
+<a name="ln1604">  size_t bufsize = newsize;  // Track available bufsize</a>
+<a name="ln1605">  (void)snprintf(buf, bufsize, cstag_msg, ptag);</a>
+<a name="ln1606">  MSG_PUTS_ATTR(buf, HL_ATTR(HLF_T));</a>
+<a name="ln1607">  msg_clr_eos();</a>
+<a name="ln1608"> </a>
+<a name="ln1609">  // restore matches[0]</a>
+<a name="ln1610">  *ptag_end = '\t';</a>
+<a name="ln1611"> </a>
+<a name="ln1612">  // Column headers for match number, line number and filename.</a>
+<a name="ln1613">  MSG_PUTS_ATTR(_(&quot;\n   #   line&quot;), HL_ATTR(HLF_T));</a>
+<a name="ln1614">  msg_advance(msg_col + 2);</a>
+<a name="ln1615">  MSG_PUTS_ATTR(_(&quot;filename / context / line\n&quot;), HL_ATTR(HLF_T));</a>
+<a name="ln1616"> </a>
+<a name="ln1617">  for (size_t i = 0; i &lt; num_matches; i++) {</a>
+<a name="ln1618">    assert(strcnt(matches[i], '\t') &gt;= 2);</a>
+<a name="ln1619"> </a>
+<a name="ln1620">    // Parse filename, line number and optional part.</a>
+<a name="ln1621">    char *fname = strchr(matches[i], '\t') + 1;</a>
+<a name="ln1622">    char *fname_end = strchr(fname, '\t');</a>
+<a name="ln1623">    // Replace second '\t' in matches[i] with NUL to terminate fname.</a>
+<a name="ln1624">    *fname_end = NUL;</a>
+<a name="ln1625"> </a>
+<a name="ln1626">    char *lno = fname_end + 1;</a>
+<a name="ln1627">    char *extra = xstrchrnul(lno, '\t');</a>
+<a name="ln1628">    // Ignore ;&quot; at the end of lno.</a>
+<a name="ln1629">    char *lno_end = extra - 2;</a>
+<a name="ln1630">    *lno_end = NUL;</a>
+<a name="ln1631">    // Do we have an optional part?</a>
+<a name="ln1632">    extra = *extra ? extra + 1 : NULL;</a>
+<a name="ln1633"> </a>
+<a name="ln1634">    const char *csfmt_str = &quot;%4zu %6s  &quot;;</a>
+<a name="ln1635">    // hopefully num_matches will be less than 10^16</a>
+<a name="ln1636">    newsize = strlen(csfmt_str) + 16 + (size_t)(lno_end - lno);</a>
+<a name="ln1637">    if (bufsize &lt; newsize) {</a>
+<a name="ln1638">      buf = xrealloc(buf, newsize);</a>
+<a name="ln1639">      bufsize = newsize;</a>
+<a name="ln1640">    }</a>
+<a name="ln1641">    (void)snprintf(buf, bufsize, csfmt_str, i + 1, lno);</a>
+<a name="ln1642">    MSG_PUTS_ATTR(buf, HL_ATTR(HLF_CM));</a>
+<a name="ln1643">    MSG_PUTS_LONG_ATTR(cs_pathcomponents(fname), HL_ATTR(HLF_CM));</a>
+<a name="ln1644"> </a>
+<a name="ln1645">    // compute the required space for the context</a>
+<a name="ln1646">    char *context = cntxts[i] ? cntxts[i] : globalcntx;</a>
+<a name="ln1647"> </a>
+<a name="ln1648">    const char *cntxformat = &quot; &lt;&lt;%s&gt;&gt;&quot;;</a>
+<a name="ln1649">    // '%s' won't appear in result string, so:</a>
+<a name="ln1650">    // newsize = len(cntxformat) - 2 + len(context) + 1 (for NUL).</a>
+<a name="ln1651">    newsize = strlen(context) + strlen(cntxformat) - 1;</a>
+<a name="ln1652"> </a>
+<a name="ln1653">    if (bufsize &lt; newsize) {</a>
+<a name="ln1654">      buf = xrealloc(buf, newsize);</a>
+<a name="ln1655">      bufsize = newsize;</a>
+<a name="ln1656">    }</a>
+<a name="ln1657">    int buf_len = snprintf(buf, bufsize, cntxformat, context);</a>
+<a name="ln1658">    assert(buf_len &gt;= 0);</a>
+<a name="ln1659"> </a>
+<a name="ln1660">    // Print the context only if it fits on the same line.</a>
+<a name="ln1661">    if (msg_col + buf_len &gt;= Columns) {</a>
+<a name="ln1662">      msg_putchar('\n');</a>
+<a name="ln1663">    }</a>
+<a name="ln1664">    msg_advance(12);</a>
+<a name="ln1665">    MSG_PUTS_LONG(buf);</a>
+<a name="ln1666">    msg_putchar('\n');</a>
+<a name="ln1667">    if (extra != NULL) {</a>
+<a name="ln1668">      msg_advance(13);</a>
+<a name="ln1669">      MSG_PUTS_LONG(extra);</a>
+<a name="ln1670">    }</a>
+<a name="ln1671"> </a>
+<a name="ln1672">    // restore matches[i]</a>
+<a name="ln1673">    *fname_end = '\t';</a>
+<a name="ln1674">    *lno_end = ';';</a>
+<a name="ln1675"> </a>
+<a name="ln1676">    if (msg_col) {</a>
+<a name="ln1677">      msg_putchar('\n');</a>
+<a name="ln1678">    }</a>
+<a name="ln1679"> </a>
+<a name="ln1680">    os_breakcheck();</a>
+<a name="ln1681">    if (got_int) {</a>
+<a name="ln1682">      got_int = false;  // don't print any more matches</a>
+<a name="ln1683">      break;</a>
+<a name="ln1684">    }</a>
+<a name="ln1685">  }</a>
+<a name="ln1686"> </a>
+<a name="ln1687">  xfree(buf);</a>
+<a name="ln1688">}</a>
+<a name="ln1689"> </a>
+<a name="ln1690">/// Read a cscope prompt (basically, skip over the &quot;&gt;&gt; &quot;).</a>
+<a name="ln1691">static int cs_read_prompt(size_t i)</a>
+<a name="ln1692">{</a>
+<a name="ln1693">  int ch;</a>
+<a name="ln1694">  char        *buf = NULL;   // buffer for possible error message from cscope</a>
+<a name="ln1695">  size_t bufpos = 0;</a>
+<a name="ln1696">  char   *cs_emsg = _(&quot;E609: Cscope error: %s&quot;);</a>
+<a name="ln1697">  size_t cs_emsg_len = strlen(cs_emsg);</a>
+<a name="ln1698">  static char *eprompt = &quot;Press the RETURN key to continue:&quot;;</a>
+<a name="ln1699">  size_t epromptlen = strlen(eprompt);</a>
+<a name="ln1700"> </a>
+<a name="ln1701">  // compute maximum allowed len for Cscope error message</a>
+<a name="ln1702">  assert(IOSIZE &gt;= cs_emsg_len);</a>
+<a name="ln1703">  size_t maxlen = IOSIZE - cs_emsg_len;</a>
+<a name="ln1704"> </a>
+<a name="ln1705">  while (1) {</a>
+<a name="ln1706">    while (1) {</a>
+<a name="ln1707">      do {</a>
+<a name="ln1708">        errno = 0;</a>
+<a name="ln1709">        ch = fgetc(csinfo[i].fr_fp);</a>
+<a name="ln1710">      } while (ch == EOF &amp;&amp; errno == EINTR &amp;&amp; ferror(csinfo[i].fr_fp));</a>
+<a name="ln1711">      if (ch == EOF || ch == CSCOPE_PROMPT[0]) {</a>
+<a name="ln1712">        break;</a>
+<a name="ln1713">      }</a>
+<a name="ln1714">      // if there is room and char is printable</a>
+<a name="ln1715">      if (bufpos &lt; maxlen - 1 &amp;&amp; vim_isprintc(ch)) {</a>
+<a name="ln1716">        // lazy buffer allocation</a>
+<a name="ln1717">        if (buf == NULL) {</a>
+<a name="ln1718">          buf = xmalloc(maxlen);</a>
+<a name="ln1719">        }</a>
+<a name="ln1720">        // append character to the message</a>
+<a name="ln1721">        buf[bufpos++] = (char)ch;</a>
+<a name="ln1722">        buf[bufpos] = NUL;</a>
+<a name="ln1723">        if (bufpos &gt;= epromptlen</a>
+<a name="ln1724">            &amp;&amp; strcmp(&amp;buf[bufpos - epromptlen], eprompt) == 0) {</a>
+<a name="ln1725">          // remove eprompt from buf</a>
+<a name="ln1726">          buf[bufpos - epromptlen] = NUL;</a>
+<a name="ln1727"> </a>
+<a name="ln1728">          // print message to user</a>
+<a name="ln1729">          (void)EMSG2(cs_emsg, buf);</a>
+<a name="ln1730"> </a>
+<a name="ln1731">          // send RETURN to cscope</a>
+<a name="ln1732">          (void)putc('\n', csinfo[i].to_fp);</a>
+<a name="ln1733">          (void)fflush(csinfo[i].to_fp);</a>
+<a name="ln1734"> </a>
+<a name="ln1735">          // clear buf</a>
+<a name="ln1736">          bufpos = 0;</a>
+<a name="ln1737">          buf[bufpos] = NUL;</a>
+<a name="ln1738">        }</a>
+<a name="ln1739">      }</a>
+<a name="ln1740">    }</a>
+<a name="ln1741"> </a>
+<a name="ln1742">    for (size_t n = 0; n &lt; strlen(CSCOPE_PROMPT); n++) {</a>
+<a name="ln1743">      if (n &gt; 0) {</a>
+<a name="ln1744">        do {</a>
+<a name="ln1745">          errno = 0;</a>
+<a name="ln1746">          ch = fgetc(csinfo[i].fr_fp);</a>
+<a name="ln1747">        } while (ch == EOF &amp;&amp; errno == EINTR &amp;&amp; ferror(csinfo[i].fr_fp));</a>
+<a name="ln1748">      }</a>
+<a name="ln1749">      if (ch == EOF) {</a>
+<a name="ln1750">        PERROR(&quot;cs_read_prompt EOF&quot;);</a>
+<a name="ln1751">        if (buf != NULL &amp;&amp; buf[0] != NUL) {</a>
+<a name="ln1752">          (void)EMSG2(cs_emsg, buf);</a>
+<a name="ln1753">        } else if (p_csverbose) {</a>
+<a name="ln1754">          cs_reading_emsg(i);           // don't have additional information</a>
+<a name="ln1755">        }</a>
+<a name="ln1756">        cs_release_csp(i, true);</a>
+<a name="ln1757">        xfree(buf);</a>
+<a name="ln1758">        return CSCOPE_FAILURE;</a>
+<a name="ln1759">      }</a>
+<a name="ln1760"> </a>
+<a name="ln1761">      if (ch != CSCOPE_PROMPT[n]) {</a>
+<a name="ln1762">        ch = EOF;</a>
+<a name="ln1763">        break;</a>
+<a name="ln1764">      }</a>
+<a name="ln1765">    }</a>
+<a name="ln1766"> </a>
+<a name="ln1767">    if (ch == EOF) {</a>
+<a name="ln1768">      continue;             // didn't find the prompt</a>
+<a name="ln1769">    }</a>
+<a name="ln1770">    break;                  // did find the prompt</a>
+<a name="ln1771">  }</a>
+<a name="ln1772"> </a>
+<a name="ln1773">  xfree(buf);</a>
+<a name="ln1774">  return CSCOPE_SUCCESS;</a>
+<a name="ln1775">}</a>
+<a name="ln1776"> </a>
+<a name="ln1777">#if defined(UNIX) &amp;&amp; defined(SIGALRM)</a>
+<a name="ln1778">/*</a>
+<a name="ln1779"> * Used to catch and ignore SIGALRM below.</a>
+<a name="ln1780"> */</a>
+<a name="ln1781">static void sig_handler(int s)</a>
+<a name="ln1782">{</a>
+<a name="ln1783">  // do nothing</a>
+<a name="ln1784">  return;</a>
+<a name="ln1785">}</a>
+<a name="ln1786"> </a>
+<a name="ln1787">#endif</a>
+<a name="ln1788"> </a>
+<a name="ln1789">/// Does the actual free'ing for the cs ptr with an optional flag of whether</a>
+<a name="ln1790">/// or not to free the filename.  Called by cs_kill and cs_reset.</a>
+<a name="ln1791">static void cs_release_csp(size_t i, bool freefnpp)</a>
+<a name="ln1792">{</a>
+<a name="ln1793">  // Trying to exit normally (not sure whether it is fit to Unix cscope)</a>
+<a name="ln1794">  if (csinfo[i].to_fp != NULL) {</a>
+<a name="ln1795">    (void)fputs(&quot;q\n&quot;, csinfo[i].to_fp);</a>
+<a name="ln1796">    (void)fflush(csinfo[i].to_fp);</a>
+<a name="ln1797">  }</a>
+<a name="ln1798">#if defined(UNIX)</a>
+<a name="ln1799">  {</a>
+<a name="ln1800">    int waitpid_errno;</a>
+<a name="ln1801">    int pstat;</a>
+<a name="ln1802">    pid_t pid;</a>
+<a name="ln1803"> </a>
+<a name="ln1804"># if defined(HAVE_SIGACTION)</a>
+<a name="ln1805">    struct sigaction sa, old;</a>
+<a name="ln1806"> </a>
+<a name="ln1807">    // Use sigaction() to limit the waiting time to two seconds.</a>
+<a name="ln1808">    sigemptyset(&amp;sa.sa_mask);</a>
+<a name="ln1809">    sa.sa_handler = sig_handler;</a>
+<a name="ln1810">#  ifdef SA_NODEFER</a>
+<a name="ln1811">    sa.sa_flags = SA_NODEFER;</a>
+<a name="ln1812">#  else</a>
+<a name="ln1813">    sa.sa_flags = 0;</a>
+<a name="ln1814">#  endif</a>
+<a name="ln1815">    sigaction(SIGALRM, &amp;sa, &amp;old);</a>
+<a name="ln1816">    alarm(2);     // 2 sec timeout</a>
+<a name="ln1817"> </a>
+<a name="ln1818">    // Block until cscope exits or until timer expires</a>
+<a name="ln1819">    pid = waitpid(csinfo[i].pid, &amp;pstat, 0);</a>
+<a name="ln1820">    waitpid_errno = errno;</a>
+<a name="ln1821"> </a>
+<a name="ln1822">    // cancel pending alarm if still there and restore signal</a>
+<a name="ln1823">    alarm(0);</a>
+<a name="ln1824">    sigaction(SIGALRM, &amp;old, NULL);</a>
+<a name="ln1825"># else</a>
+<a name="ln1826">    int waited;</a>
+<a name="ln1827"> </a>
+<a name="ln1828">    // Can't use sigaction(), loop for two seconds.  First yield the CPU</a>
+<a name="ln1829">    // to give cscope a chance to exit quickly.</a>
+<a name="ln1830">    sleep(0);</a>
+<a name="ln1831">    for (waited = 0; waited &lt; 40; ++waited) {</a>
+<a name="ln1832">      pid = waitpid(csinfo[i].pid, &amp;pstat, WNOHANG);</a>
+<a name="ln1833">      waitpid_errno = errno;</a>
+<a name="ln1834">      if (pid != 0) {</a>
+<a name="ln1835">        break;          // break unless the process is still running</a>
+<a name="ln1836">      }</a>
+<a name="ln1837">      os_delay(50L, false);       // sleep 50 ms</a>
+<a name="ln1838">    }</a>
+<a name="ln1839"># endif</a>
+<a name="ln1840">    /*</a>
+<a name="ln1841">     * If the cscope process is still running: kill it.</a>
+<a name="ln1842">     * Safety check: If the PID would be zero here, the entire X session</a>
+<a name="ln1843">     * would be killed.  -1 and 1 are dangerous as well.</a>
+<a name="ln1844">     */</a>
+<a name="ln1845">    if (pid &lt; 0 &amp;&amp; csinfo[i].pid &gt; 1) {</a>
+<a name="ln1846"># ifdef ECHILD</a>
+<a name="ln1847">      bool alive = true;</a>
+<a name="ln1848"> </a>
+<a name="ln1849">      if (waitpid_errno == ECHILD) {</a>
+<a name="ln1850">        /*</a>
+<a name="ln1851">         * When using 'vim -g', vim is forked and cscope process is</a>
+<a name="ln1852">         * no longer a child process but a sibling.  So waitpid()</a>
+<a name="ln1853">         * fails with errno being ECHILD (No child processes).</a>
+<a name="ln1854">         * Don't send SIGKILL to cscope immediately but wait</a>
+<a name="ln1855">         * (polling) for it to exit normally as result of sending</a>
+<a name="ln1856">         * the &quot;q&quot; command, hence giving it a chance to clean up</a>
+<a name="ln1857">         * its temporary files.</a>
+<a name="ln1858">         */</a>
+<a name="ln1859">        int waited;</a>
+<a name="ln1860"> </a>
+<a name="ln1861">        sleep(0);</a>
+<a name="ln1862">        for (waited = 0; waited &lt; 40; waited++) {</a>
+<a name="ln1863">          // Check whether cscope process is still alive</a>
+<a name="ln1864">          if (kill(csinfo[i].pid, 0) != 0) {</a>
+<a name="ln1865">            alive = false;             // cscope process no longer exists</a>
+<a name="ln1866">            break;</a>
+<a name="ln1867">          }</a>
+<a name="ln1868">          os_delay(50L, false);           // sleep 50ms</a>
+<a name="ln1869">        }</a>
+<a name="ln1870">      }</a>
+<a name="ln1871">      if (alive)</a>
+<a name="ln1872"># endif</a>
+<a name="ln1873">      {</a>
+<a name="ln1874">        kill(csinfo[i].pid, SIGKILL);</a>
+<a name="ln1875">        (void)waitpid(csinfo[i].pid, &amp;pstat, 0);</a>
+<a name="ln1876">      }</a>
+<a name="ln1877">    }</a>
+<a name="ln1878">  }</a>
+<a name="ln1879">#else  // !UNIX</a>
+<a name="ln1880">  if (csinfo[i].hProc != NULL) {</a>
+<a name="ln1881">    // Give cscope a chance to exit normally</a>
+<a name="ln1882">    if (WaitForSingleObject(csinfo[i].hProc, 1000) == WAIT_TIMEOUT) {</a>
+<a name="ln1883">      TerminateProcess(csinfo[i].hProc, 0);</a>
+<a name="ln1884">    }</a>
+<a name="ln1885">    CloseHandle(csinfo[i].hProc);</a>
+<a name="ln1886">  }</a>
+<a name="ln1887">#endif</a>
+<a name="ln1888"> </a>
+<a name="ln1889">  if (csinfo[i].fr_fp != NULL)</a>
+<a name="ln1890">    (void)fclose(csinfo[i].fr_fp);</a>
+<a name="ln1891">  if (csinfo[i].to_fp != NULL)</a>
+<a name="ln1892">    (void)fclose(csinfo[i].to_fp);</a>
+<a name="ln1893"> </a>
+<a name="ln1894">  if (freefnpp) {</a>
+<a name="ln1895">    xfree(csinfo[i].fname);</a>
+<a name="ln1896">    xfree(csinfo[i].ppath);</a>
+<a name="ln1897">    xfree(csinfo[i].flags);</a>
+<a name="ln1898">  }</a>
+<a name="ln1899"> </a>
+<a name="ln1900">  clear_csinfo(i);</a>
+<a name="ln1901">}</a>
+<a name="ln1902"> </a>
+<a name="ln1903"> </a>
+<a name="ln1904">/// Calls cs_kill on all cscope connections then reinits.</a>
+<a name="ln1905">static int cs_reset(exarg_T *eap)</a>
+<a name="ln1906">{</a>
+<a name="ln1907">  char        **dblist = NULL, **pplist = NULL, **fllist = NULL;</a>
+<a name="ln1908">  char buf[25];  // for snprintf &quot; (#%zu)&quot;</a>
+<a name="ln1909"> </a>
+<a name="ln1910">  if (csinfo_size == 0)</a>
+<a name="ln1911">    return CSCOPE_SUCCESS;</a>
+<a name="ln1912"> </a>
+<a name="ln1913">  // malloc our db and ppath list</a>
+<a name="ln1914">  dblist = xmalloc(csinfo_size * sizeof(char *));</a>
+<a name="ln1915">  pplist = xmalloc(csinfo_size * sizeof(char *));</a>
+<a name="ln1916">  fllist = xmalloc(csinfo_size * sizeof(char *));</a>
+<a name="ln1917"> </a>
+<a name="ln1918">  for (size_t i = 0; i &lt; csinfo_size; i++) {</a>
+<a name="ln1919">    dblist[i] = csinfo[i].fname;</a>
+<a name="ln1920">    pplist[i] = csinfo[i].ppath;</a>
+<a name="ln1921">    fllist[i] = csinfo[i].flags;</a>
+<a name="ln1922">    if (csinfo[i].fname != NULL)</a>
+<a name="ln1923">      cs_release_csp(i, FALSE);</a>
+<a name="ln1924">  }</a>
+<a name="ln1925"> </a>
+<a name="ln1926">  // rebuild the cscope connection list</a>
+<a name="ln1927">  for (size_t i = 0; i &lt; csinfo_size; i++) {</a>
+<a name="ln1928">    if (dblist[i] != NULL) {</a>
+<a name="ln1929">      cs_add_common(dblist[i], pplist[i], fllist[i]);</a>
+<a name="ln1930">      if (p_csverbose) {</a>
+<a name="ln1931">        // don't use smsg_attr() because we want to display the</a>
+<a name="ln1932">        // connection number in the same line as</a>
+<a name="ln1933">        // &quot;Added cscope database...&quot;</a>
+<a name="ln1934">        snprintf(buf, ARRAY_SIZE(buf), &quot; (#%zu)&quot;, i);</a>
+<a name="ln1935">        MSG_PUTS_ATTR(buf, HL_ATTR(HLF_R));</a>
+<a name="ln1936">      }</a>
+<a name="ln1937">    }</a>
+<a name="ln1938">    xfree(dblist[i]);</a>
+<a name="ln1939">    xfree(pplist[i]);</a>
+<a name="ln1940">    xfree(fllist[i]);</a>
+<a name="ln1941">  }</a>
+<a name="ln1942">  xfree(dblist);</a>
+<a name="ln1943">  xfree(pplist);</a>
+<a name="ln1944">  xfree(fllist);</a>
+<a name="ln1945"> </a>
+<a name="ln1946">  if (p_csverbose) {</a>
+<a name="ln1947">    msg_attr(_(&quot;All cscope databases reset&quot;), HL_ATTR(HLF_R) | MSG_HIST);</a>
+<a name="ln1948">  }</a>
+<a name="ln1949">  return CSCOPE_SUCCESS;</a>
+<a name="ln1950">}</a>
+<a name="ln1951"> </a>
+<a name="ln1952"> </a>
+<a name="ln1953">/// Construct the full pathname to a file found in the cscope database.</a>
+<a name="ln1954">/// (Prepends ppath, if there is one and if it's not already prepended,</a>
+<a name="ln1955">/// otherwise just uses the name found.)</a>
+<a name="ln1956">///</a>
+<a name="ln1957">/// We need to prepend the prefix because on some cscope's (e.g., the one that</a>
+<a name="ln1958">/// ships with Solaris 2.6), the output never has the prefix prepended.</a>
+<a name="ln1959">/// Contrast this with my development system (Digital Unix), which does.</a>
+<a name="ln1960">static char *cs_resolve_file(size_t i, char *name)</a>
+<a name="ln1961">{</a>
+<a name="ln1962">  char        *fullname;</a>
+<a name="ln1963">  char_u      *csdir = NULL;</a>
+<a name="ln1964"> </a>
+<a name="ln1965">  /*</a>
+<a name="ln1966">   * Ppath is freed when we destroy the cscope connection.</a>
+<a name="ln1967">   * Fullname is freed after cs_make_vim_style_matches, after it's been</a>
+<a name="ln1968">   * copied into the tag buffer used by Vim.</a>
+<a name="ln1969">   */</a>
+<a name="ln1970">  size_t len = strlen(name) + 2;</a>
+<a name="ln1971">  if (csinfo[i].ppath != NULL) {</a>
+<a name="ln1972">    len += strlen(csinfo[i].ppath);</a>
+<a name="ln1973">  } else if (p_csre &amp;&amp; csinfo[i].fname != NULL) {</a>
+<a name="ln1974">    // If 'cscoperelative' is set and ppath is not set, use cscope.out</a>
+<a name="ln1975">    // path in path resolution.</a>
+<a name="ln1976">    csdir = xmalloc(MAXPATHL);</a>
+<a name="ln1977">    STRLCPY(csdir, csinfo[i].fname,</a>
+<a name="ln1978">        path_tail((char_u *)csinfo[i].fname)</a>
+<a name="ln1979">        - (char_u *)csinfo[i].fname + 1);</a>
+<a name="ln1980">    len += STRLEN(csdir);</a>
+<a name="ln1981">  }</a>
+<a name="ln1982"> </a>
+<a name="ln1983">  // Note/example: this won't work if the cscope output already starts</a>
+<a name="ln1984">  // &quot;../..&quot; and the prefix path is also &quot;../..&quot;.  if something like this</a>
+<a name="ln1985">  // happens, you are screwed up and need to fix how you're using cscope.</a>
+<a name="ln1986">  if (csinfo[i].ppath != NULL</a>
+<a name="ln1987">      &amp;&amp; (strncmp(name, csinfo[i].ppath, strlen(csinfo[i].ppath)) != 0)</a>
+<a name="ln1988">      &amp;&amp; (name[0] != '/')</a>
+<a name="ln1989">      ) {</a>
+<a name="ln1990">    fullname = xmalloc(len);</a>
+<a name="ln1991">    (void)sprintf(fullname, &quot;%s/%s&quot;, csinfo[i].ppath, name);</a>
+<a name="ln1992">  } else if (csdir != NULL &amp;&amp; csinfo[i].fname != NULL &amp;&amp; *csdir != NUL) {</a>
+<a name="ln1993">    // Check for csdir to be non empty to avoid empty path concatenated to</a>
+<a name="ln1994">    // cscope output.</a>
+<a name="ln1995">    fullname = concat_fnames((char *)csdir, name, true);</a>
+<a name="ln1996">  } else {</a>
+<a name="ln1997">    fullname = xstrdup(name);</a>
+<a name="ln1998">  }</a>
+<a name="ln1999"> </a>
+<a name="ln2000">  xfree(csdir);</a>
+<a name="ln2001">  return fullname;</a>
+<a name="ln2002">}</a>
+<a name="ln2003"> </a>
+<a name="ln2004"> </a>
+<a name="ln2005">/// Show all cscope connections.</a>
+<a name="ln2006">static int cs_show(exarg_T *eap)</a>
+<a name="ln2007">{</a>
+<a name="ln2008">  if (cs_cnt_connections() == 0)</a>
+<a name="ln2009">    MSG_PUTS(_(&quot;no cscope connections\n&quot;));</a>
+<a name="ln2010">  else {</a>
+<a name="ln2011">    MSG_PUTS_ATTR(</a>
+<a name="ln2012">        _(&quot; # pid    database name                       prepend path\n&quot;),</a>
+<a name="ln2013">        HL_ATTR(HLF_T));</a>
+<a name="ln2014">    for (size_t i = 0; i &lt; csinfo_size; i++) {</a>
+<a name="ln2015">      if (csinfo[i].fname == NULL)</a>
+<a name="ln2016">        continue;</a>
+<a name="ln2017"> </a>
+<a name="ln2018">      if (csinfo[i].ppath != NULL) {</a>
+<a name="ln2019">        (void)smsg(&quot;%2zu %-5&quot; PRId64 &quot;  %-34s  %-32s&quot;, i,</a>
+<a name="ln2020">                   (int64_t)csinfo[i].pid, csinfo[i].fname, csinfo[i].ppath);</a>
+<a name="ln2021">      } else {</a>
+<a name="ln2022">        (void)smsg(&quot;%2zu %-5&quot; PRId64 &quot;  %-34s  &lt;none&gt;&quot;, i,</a>
+<a name="ln2023">                   (int64_t)csinfo[i].pid, csinfo[i].fname);</a>
+<a name="ln2024">      }</a>
+<a name="ln2025">    }</a>
+<a name="ln2026">  }</a>
+<a name="ln2027"> </a>
+<a name="ln2028">  wait_return(TRUE);</a>
+<a name="ln2029">  return CSCOPE_SUCCESS;</a>
+<a name="ln2030">}</a>
+<a name="ln2031"> </a>
+<a name="ln2032"> </a>
+<a name="ln2033">/// Only called when VIM exits to quit any cscope sessions.</a>
+<a name="ln2034">void cs_end(void)</a>
+<a name="ln2035">{</a>
+<a name="ln2036">  for (size_t i = 0; i &lt; csinfo_size; i++)</a>
+<a name="ln2037">    cs_release_csp(i, true);</a>
+<a name="ln2038">  xfree(csinfo);</a>
+<a name="ln2039">  csinfo_size = 0;</a>
+<a name="ln2040">}</a>
+<a name="ln2041"> </a>
+<a name="ln2042">// the end</a>
+
+</code></pre>
+<div class="balloon" rel="1934"><p><span style="font-size:18px">&uarr;</span> <a href="https://www.viva64.com/en/w/v1063/" target="_blank">V1063</a> The modulo by 1 operation is meaningless. The result will always be zero.</p></div>
+
+<link rel="stylesheet" href="highlight.css">
+<script src="highlight.pack.js"></script>
+<script src="highlightjs-line-numbers.js"></script>
+<script>hljs.initHighlightingOnLoad();</script>
+<script>hljs.initLineNumbersOnLoad();</script>
+<script>
+  $(document).ready(function() {
+      $('.balloon').each(function () {
+          var bl = $(this);
+          var line = bl.attr('rel');
+          var text = $('a[name="ln'+line+'"]').text();
+
+          var space_count = 0;
+          for(var i = 0; i<text.length; i++){
+              var char = text[i];
+              if((char !== ' ')&&(char !== '\t'))break;
+              if(char === '\t')space_count++;
+              space_count++;
+          }
+
+          bl.css('margin-left', space_count*8);
+          $('a[name="ln'+line+'"]').after(bl);
+      });
+
+      window.location = window.location;
+  });
+</script>
+</body>
+</html>

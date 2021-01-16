@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta content="IE=edge" http-equiv="X-UA-Compatible">
+    <meta content="width=device-width, initial-scale=1" name="viewport">
+    <title>Nvim documentation: deprecated</title>
+    <link href="https://fonts.googleapis.com/css?family=Lato:400,700,900" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/normalize/3.0.0/normalize.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.5/css/bootstrap.min.css">
+    <link href="/css/main.css" rel="stylesheet">
+    <!--[if lt IE 9]>
+      <script src="https://oss.maxcdn.com/libs/html5shiv/3.7.0/html5shiv.js"></script>
+      <script src="https://oss.maxcdn.com/libs/respond.js/1.4.2/respond.min.js"></script>
+    <![endif]-->
+    
+  </head>
+  <body>
+    <header class="navbar">
+      <div class="container">
+        <nav class="navbar">
+          <div class="container-fluid">
+            <div class="navbar-header">
+
+              <a href="/" class="navbar-brand">
+                <img src="/images/logo@2x.png" id="navbar-logo" alt="Neovim">
+              </a>
+            </div>
+          </div>
+        </nav>
+      </div>
+    </header>
+
+    <div class="container">
+      <h1>Nvim documentation: deprecated</h1>
+<A NAME="top"></A>
+<A HREF="index.html">main help file</A>
+
+<HR>
+<PRE>
+
+*<A NAME="deprecated.txt"></A><B>deprecated.txt</B>*       Nvim
+
+
+                             NVIM REFERENCE MANUAL
+
+
+
+Nvim                                                             *<A NAME="deprecated"></A><B>deprecated</B>*
+
+The items listed below are &quot;<A HREF="#deprecated">deprecated</A>&quot;. This means they will be removed in
+the future. They should not be used in new scripts, and old scripts should be
+updated.
+
+==============================================================================
+
+<B><FONT color="#54A23D">API </FONT></B>
+
+*<A NAME="nvim_buf_clear_highlight()"></A><B>nvim_buf_clear_highlight()</B>*	Use |<A HREF="api.html#nvim_buf_clear_namespace()">nvim_buf_clear_namespace()</A>| instead.
+
+*<A NAME="nvim_command_output()"></A><B>nvim_command_output()</B>*		Use |<A HREF="api.html#nvim_exec()">nvim_exec()</A>| instead.
+
+*<A NAME="nvim_execute_lua()"></A><B>nvim_execute_lua()</B>*		Use |<A HREF="api.html#nvim_exec_lua()">nvim_exec_lua()</A>| instead.
+
+<B><FONT color="#54A23D">Commands </FONT></B>
+
+*<A NAME=":rv"></A><B>:rv</B>*
+
+*<A NAME=":rviminfo"></A><B>:rviminfo</B>*		Deprecated alias to |<A HREF="starting.html#:rshada">:rshada</A>| command.
+
+*<A NAME=":wv"></A><B>:wv</B>*
+
+*<A NAME=":wviminfo"></A><B>:wviminfo</B>*		Deprecated alias to |<A HREF="starting.html#:wshada">:wshada</A>| command.
+
+<B><FONT color="#54A23D">Environment Variables </FONT></B>
+
+*<A NAME="$NVIM_LISTEN_ADDRESS"></A><B>$NVIM_LISTEN_ADDRESS</B>*	Deprecated in favor of |<A HREF="starting.html#--listen">--listen</A>|.  If both are given,
+			<A HREF="#$NVIM_LISTEN_ADDRESS">$NVIM_LISTEN_ADDRESS</A> is ignored.
+
+<B><FONT color="#54A23D">Events </FONT></B>
+
+*<A NAME="BufCreate"></A><B>BufCreate</B>*		Use |<A HREF="autocmd.html#BufAdd">BufAdd</A>| instead.
+
+*<A NAME="EncodingChanged"></A><B>EncodingChanged</B>*	Never fired; <A HREF="options.html#'encoding'">'encoding'</A> is always &quot;<A HREF="mbyte.html#utf-8">utf-8</A>&quot;.
+
+*<A NAME="FileEncoding"></A><B>FileEncoding</B>*		Never fired; equivalent to |<A HREF="#EncodingChanged">EncodingChanged</A>|.
+
+*<A NAME="GUIEnter"></A><B>GUIEnter</B>*		Never fired; use |<A HREF="autocmd.html#UIEnter">UIEnter</A>| instead.
+
+*<A NAME="GUIFailed"></A><B>GUIFailed</B>*		Never fired.
+
+<B><FONT color="#54A23D">Keycodes </FONT></B>
+
+*<A NAME="&lt;MouseDown&gt;"></A><B>&lt;MouseDown&gt;</B>*		Use &lt;ScrollWheelUp&gt; instead.
+
+*<A NAME="&lt;MouseUp&gt;"></A><B>&lt;MouseUp&gt;</B>*		Use &lt;ScrollWheelDown&gt; instead.
+
+<B><FONT color="#54A23D">Functions </FONT></B>
+
+*<A NAME="buffer_exists()"></A><B>buffer_exists()</B>*	Obsolete name for |<A HREF="eval.html#bufexists()">bufexists()</A>|.
+
+*<A NAME="buffer_name()"></A><B>buffer_name()</B>*		Obsolete name for |<A HREF="eval.html#bufname()">bufname()</A>|.
+
+*<A NAME="buffer_number()"></A><B>buffer_number()</B>*	Obsolete name for |<A HREF="eval.html#bufnr()">bufnr()</A>|.
+
+*<A NAME="file_readable()"></A><B>file_readable()</B>*	Obsolete name for |<A HREF="eval.html#filereadable()">filereadable()</A>|.
+
+*<A NAME="highlight_exists()"></A><B>highlight_exists()</B>*	Obsolete name for |<A HREF="eval.html#hlexists()">hlexists()</A>|.
+
+*<A NAME="highlightID()"></A><B>highlightID()</B>*		Obsolete name for |<A HREF="eval.html#hlID()">hlID()</A>|.
+
+*<A NAME="inputdialog()"></A><B>inputdialog()</B>*		Use |<A HREF="eval.html#input()">input()</A>| instead.
+
+*<A NAME="jobclose()"></A><B>jobclose()</B>*		Obsolete name for |<A HREF="eval.html#chanclose()">chanclose()</A>|
+
+*<A NAME="jobsend()"></A><B>jobsend()</B>*		Obsolete name for |<A HREF="eval.html#chansend()">chansend()</A>|
+
+*<A NAME="last_buffer_nr()"></A><B>last_buffer_nr()</B>*	Obsolete name for bufnr(&quot;$&quot;).
+
+*<A NAME="rpcstop()"></A><B>rpcstop()</B>*		Deprecated. Instead use |<A HREF="eval.html#jobstop()">jobstop()</A>| to stop any job,
+			or chanclose(id, &quot;<A HREF="api.html#rpc">rpc</A>&quot;) to close <A HREF="api.html#RPC">RPC</A> communication
+			without stopping the <A HREF="job_control.html#job">job</A>. Use chanclose(id) to close
+			any socket.
+
+
+<B><FONT color="#54A23D">Modifiers </FONT></B>
+
+*<A NAME="cpo-&lt;"></A><B>cpo-&lt;</B>*
+
+*<A NAME=":menu-&lt;special&gt;"></A><B>:menu-&lt;special&gt;</B>*
+
+*<A NAME=":menu-special"></A><B>:menu-special</B>*		<A HREF="intro.html#&lt;&gt;">&lt;&gt;</A> <A HREF="intro.html#notation">notation</A> is always enabled.
+
+*<A NAME=":map-&lt;special&gt;"></A><B>:map-&lt;special&gt;</B>*
+
+*<A NAME=":map-special"></A><B>:map-special</B>*		<A HREF="intro.html#&lt;&gt;">&lt;&gt;</A> <A HREF="intro.html#notation">notation</A> is always enabled.
+
+<B><FONT color="#54A23D">Normal commands </FONT></B>
+
+*<A NAME="]f"></A><B>]f</B>*
+
+*<A NAME="[f"></A><B>[f</B>*			Same <A HREF="motion.html#as">as</A> &quot;<A HREF="editing.html#gf">gf</A>&quot;.
+
+<B><FONT color="#54A23D">Options </FONT></B>
+
+*<A NAME="'cscopeverbose'"></A><B>'cscopeverbose'</B>*	Enabled by default. Use |<A HREF="various.html#:silent">:silent</A>| instead.
+
+*<A NAME="'exrc'"></A><B>'exrc'</B>* *<A NAME="'ex'"></A><B>'ex'</B>*		Security risk: downloaded files could include
+			a malicious .nvimrc or .exrc file. See <A HREF="options.html#'secure'">'secure'</A>.
+			Recommended alternative: define an <A HREF="autocmd.html#autocommand">autocommand</A> in your
+			|<A HREF="starting.html#vimrc">vimrc</A>| to set <A HREF="options.html#options">options</A> for a matching directory.
+<A HREF="options.html#'gd'">'gd'</A>
+<A HREF="options.html#'gdefault'">'gdefault'</A>		Enables the |<A HREF="change.html#:substitute">:substitute</A>| flag '<A HREF="vimindex.html#g">g</A>' by default.
+
+*<A NAME="'fe'"></A><B>'fe'</B>*			'fenc'+'enc' before Vim 6.0; no longer used.
+
+*<A NAME="'highlight'"></A><B>'highlight'</B>* *<A NAME="'hl'"></A><B>'hl'</B>*	Names of builtin |<A HREF="syntax.html#highlight-groups">highlight-groups</A>| cannot be changed.
+
+*<A NAME="'langnoremap'"></A><B>'langnoremap'</B>*		Deprecated alias to <A HREF="options.html#'nolangremap'">'nolangremap'</A>.
+<A HREF="options.html#'sessionoptions'">'sessionoptions'</A>	Flags &quot;unix&quot;, &quot;slash&quot; are ignored and always enabled.
+
+*<A NAME="'vi'"></A><B>'vi'</B>*
+<A HREF="options.html#'viewoptions'">'viewoptions'</A>		Flags &quot;unix&quot;, &quot;slash&quot; are ignored and always enabled.
+
+*<A NAME="'viminfo'"></A><B>'viminfo'</B>*		Deprecated alias to <A HREF="options.html#'shada'">'shada'</A> option.
+
+*<A NAME="'viminfofile'"></A><B>'viminfofile'</B>*		Deprecated alias to <A HREF="options.html#'shadafile'">'shadafile'</A> option.
+
+<B><FONT color="#54A23D">UI extensions</FONT></B>
+
+*<A NAME="ui-wildmenu"></A><B>ui-wildmenu</B>*		Use |<A HREF="ui.html#ui-cmdline">ui-cmdline</A>| with |<A HREF="ui.html#ui-popupmenu">ui-popupmenu</A>| instead. Enabled
+			by the `ext_wildmenu` |<A HREF="ui.html#ui-option">ui-option</A>|. Emits these <A HREF="autocmd.html#events">events</A>:
+				[&quot;wildmenu_show&quot;, items]
+				[&quot;wildmenu_select&quot;, selected]
+				[&quot;wildmenu_hide&quot;]
+
+<B><FONT color="#54A23D">Variables</FONT></B>
+
+*<A NAME="b:terminal_job_pid"></A><B>b:terminal_job_pid</B>*	PID of the top-level process in a |<A HREF="various.html#:terminal">:terminal</A>|.
+			Use `jobpid(&amp;channel)` instead.
+
+<A HREF="#top">top</A> - <A HREF="index.html">main help file</A>
+</PRE>
+    </div>
+
+    <footer>
+      <div class="container">
+        Generated Wed Nov 11 14:13:41 UTC 2020 from <a href="https://github.com/neovim/neovim/commit/0a95549d66df63c06d775fcc329f7b63cbb46b2f"><code>0a95549</code></a>.
+      </div>
+    </footer>
+  </body>
+</html>

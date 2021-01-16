@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta content="IE=edge" http-equiv="X-UA-Compatible">
+    <meta content="width=device-width, initial-scale=1" name="viewport">
+    <title>Nvim documentation: channel</title>
+    <link href="https://fonts.googleapis.com/css?family=Lato:400,700,900" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/normalize/3.0.0/normalize.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.5/css/bootstrap.min.css">
+    <link href="/css/main.css" rel="stylesheet">
+    <!--[if lt IE 9]>
+      <script src="https://oss.maxcdn.com/libs/html5shiv/3.7.0/html5shiv.js"></script>
+      <script src="https://oss.maxcdn.com/libs/respond.js/1.4.2/respond.min.js"></script>
+    <![endif]-->
+    
+  </head>
+  <body>
+    <header class="navbar">
+      <div class="container">
+        <nav class="navbar">
+          <div class="container-fluid">
+            <div class="navbar-header">
+
+              <a href="/" class="navbar-brand">
+                <img src="/images/logo@2x.png" id="navbar-logo" alt="Neovim">
+              </a>
+            </div>
+          </div>
+        </nav>
+      </div>
+    </header>
+
+    <div class="container">
+      <h1>Nvim documentation: channel</h1>
+<A NAME="top"></A>
+<A HREF="index.html">main help file</A>
+
+<HR>
+<PRE>
+
+*<A NAME="channel.txt"></A><B>channel.txt</B>*    Nvim
+
+
+		 NVIM REFERENCE MANUAL    by Thiago de Arruda
+
+
+
+Nvim asynchronous IO					*<A NAME="channel"></A><B>channel</B>*
+
+				      Type |<A HREF="various.html#gO">gO</A>| to see the table of contents.
+
+==============================================================================
+
+1. Introduction						    *<A NAME="channel-intro"></A><B>channel-intro</B>*
+
+Channels are nvim's way of communicating with external processes.
+
+There are several ways to open a <A HREF="#channel">channel</A>:
+
+  1. Through stdin/stdout when `nvim` is started with `--headless`, and a <A HREF="starting.html#startup">startup</A>
+     <A HREF="usr_41.html#script">script</A> or <A HREF="starting.html#--cmd">--cmd</A>  command opens the stdio <A HREF="#channel">channel</A> using |<A HREF="eval.html#stdioopen()">stdioopen()</A>|.
+
+  2. Through stdin, stdout and stderr of a process spawned by |<A HREF="eval.html#jobstart()">jobstart()</A>|.
+
+  3. Through the PTY master end of a PTY opened with
+     `jobstart(..., {'pty': v:true})` or |<A HREF="eval.html#termopen()">termopen()</A>|.
+
+  4. By connecting to a TCP/IP socket or named pipe with |<A HREF="eval.html#sockconnect()">sockconnect()</A>|.
+
+  5. By another process connecting to a socket listened to by <A HREF="nvim.html#nvim">nvim</A>. This only
+     supports <A HREF="api.html#RPC">RPC</A> channels, see |<A HREF="api.html#rpc-connecting">rpc-connecting</A>|.
+
+Channels support multiple modes or protocols. In the most basic
+mode of operation, raw bytes are read and written to the <A HREF="#channel">channel</A>.
+The |<A HREF="api.html#RPC">RPC</A>| protocol, based on the <A HREF="api.html#msgpack-rpc">msgpack-rpc</A> standard, enables <A HREF="nvim.html#nvim">nvim</A> and the
+process at the other end to send remote calls and <A HREF="autocmd.html#events">events</A> to each other.
+The builtin |<A HREF="nvim_terminal_emulator.html#terminal-emulator">terminal-emulator</A>| is also implemented on top of PTY channels.
+
+
+Channel Id						*<A NAME="channel-id"></A><B>channel-id</B>*
+
+Each <A HREF="#channel">channel</A> is identified by an integer id, unique for the life of the
+current Nvim session. Functions like |<A HREF="eval.html#stdioopen()">stdioopen()</A>| return <A HREF="#channel">channel</A> ids;
+<A HREF="eval.html#functions">functions</A> like |<A HREF="eval.html#chansend()">chansend()</A>| consume <A HREF="#channel">channel</A> ids.
+
+==============================================================================
+
+2. Reading and <A HREF="editing.html#writing">writing</A> raw bytes			      *<A NAME="channel-bytes"></A><B>channel-bytes</B>*
+
+Channels opened by Vimscript <A HREF="eval.html#functions">functions</A> operate with raw bytes by default. For
+a <A HREF="job_control.html#job">job</A> <A HREF="#channel">channel</A> using <A HREF="api.html#RPC">RPC</A>, bytes can still be read over its stderr. Similarily,
+only bytes can be written to Nvim's own stderr.
+
+
+						*<A NAME="channel-callback"></A><B>channel-callback</B>*
+
+on_stdout({chan-id}, {data}, {name})		*<A NAME="on_stdout"></A><B>on_stdout</B>* 
+
+on_stderr({chan-id}, {data}, {name})		*<A NAME="on_stderr"></A><B>on_stderr</B>* 
+
+on_stdin({chan-id}, {data}, {name})		*<A NAME="on_stdin"></A><B>on_stdin</B>* 
+
+on_data({chan-id}, {data}, {name})		*<A NAME="on_data"></A><B>on_data</B>*
+    Scripts can react to <A HREF="#channel">channel</A> activity (received data) via callback
+    <A HREF="eval.html#functions">functions</A> assigned to the `on_stdout`, `on_stderr`, `on_stdin`, or
+    `on_data` option keys. Callbacks should be fast: avoid potentially
+    slow/expensive work.
+
+<B><FONT color="#54A23D">    Parameters: </FONT></B>
+      {chan-id}     Channel handle. |<A HREF="#channel-id">channel-id</A>|
+      {data}	    Raw data (|readfile()|-style <A HREF="eval.html#list">list</A> of strings) read from
+		    the <A HREF="#channel">channel</A>. EOF is a single-item <A HREF="eval.html#list">list</A>: `['']`. First and
+		    last items may be partial lines! |<A HREF="#channel-lines">channel-lines</A>|
+      {name}	    Stream name (string) like &quot;stdout&quot;, so the same function
+		    can handle multiple streams. Event names depend on how the
+		    <A HREF="#channel">channel</A> was opened and in what mode/protocol.
+
+
+						*<A NAME="channel-buffered"></A><B>channel-buffered</B>*
+    The callback is invoked immediately <A HREF="motion.html#as">as</A> data is available, where
+    a single-item <A HREF="eval.html#list">list</A> `['']` indicates EOF (stream closed).  Alternatively
+    set the `stdout_buffered`, `stderr_buffered`, `stdin_buffered`, or
+    `data_buffered` option keys to invoke the callback only after all output
+    was gathered and the stream was closed.
+
+						*<A NAME="E5210"></A><B>E5210</B>*
+    If a buffering mode is used without a callback, the data is saved in the
+    stream {name} key of the <A HREF="options.html#options">options</A> <A HREF="eval.html#dict">dict</A>. It is an error if the key exists.
+
+
+							      *<A NAME="channel-lines"></A><B>channel-lines</B>*
+    Stream event handlers receive data <A HREF="motion.html#as">as</A> <A HREF="motion.html#it">it</A> becomes available from the OS,
+    thus the first and last items in the {data} <A HREF="eval.html#list">list</A> may be partial lines.
+    Empty <A HREF="eval.html#string">string</A> completes the previous partial line. Examples (not including
+    the final `['']` emitted at EOF):
+      - `foobar` may arrive <A HREF="motion.html#as">as</A> `['fo'], ['obar']` 
+      - `foo\nbar` may arrive <A HREF="motion.html#as">as</A>
+	   `['foo','bar']`
+	or `['foo',''], ['bar']`
+	or `['foo'], ['','bar']`
+	or `['fo'], ['o','bar']`
+    There are two ways to deal with this:
+    1. To wait for the entire output, use |<A HREF="#channel-buffered">channel-buffered</A>| mode.
+    2. To read line-by-line, use the following code:
+<B>	let s:lines = ['']</B>
+<B>	func! s:on_event(job_id, data, event) dict</B>
+<B>	  let eof = (a:data == [''])</B>
+<B>	  " Complete the previous line.</B>
+<B>	  let s:lines[-1] .= a:data[0]</B>
+<B>	  " Append (last item may be a partial line, until EOF).</B>
+<B>	  call extend(s:lines, a:data[1:])</B>
+<B>	endf</B>
+ 
+
+If the callback <A HREF="eval.html#functions">functions</A> are |<A HREF="eval.html#Dictionary-function">Dictionary-function</A>|s, |<A HREF="eval.html#self">self</A>| refers to the
+<A HREF="options.html#options">options</A> dictionary containing the callbacks. |<A HREF="eval.html#Partial">Partial</A>|<A HREF="change.html#s">s</A> can also be used <A HREF="motion.html#as">as</A>
+callbacks.
+
+Data can be sent to the <A HREF="#channel">channel</A> using the |<A HREF="eval.html#chansend()">chansend()</A>| function. Here is a
+simple example, echoing some data through a cat-process:
+
+<B>    function! s:OnEvent(id, data, event) dict</B>
+<B>      let str = join(a:data, "\n")</B>
+<B>      echomsg str</B>
+<B>    endfunction</B>
+<B>    let id = jobstart(['cat'], {'on_stdout': function('s:OnEvent') } )</B>
+<B>    call chansend(id, "hello!")</B>
+ 
+
+Here is a example of setting a buffer to the result of <A HREF="quickfix.html#grep">grep</A>, but only after
+all data has been processed:
+
+<B>    function! s:OnEvent(id, data, event) dict</B>
+<B>      call nvim_buf_set_lines(2, 0, -1, v:true, a:data)</B>
+<B>    endfunction</B>
+<B>    let id = jobstart(['grep', '^[0-9]'], { 'on_stdout': function('s:OnEvent'),</B>
+<B>					  \ 'stdout_buffered':v:true } )</B>
+
+<B>    call chansend(id, "stuff\n10 PRINT \"NVIM\"\nxx")</B>
+<B>    " no output is received, buffer is empty</B>
+
+<B>    call chansend(id, "xx\n20 GOTO 10\nzz\n")</B>
+<B>    call chanclose(id, 'stdin')</B>
+<B>    " now buffer has result</B>
+ 
+For additional examples with jobs, see |<A HREF="job_control.html#job-control">job-control</A>|.
+
+
+							      *<A NAME="channel-pty"></A><B>channel-pty</B>*
+Special <A HREF="change.html#case">case</A>: PTY channels opened with `jobstart(..., {'pty': v:true})` <A HREF="diff.html#do">do</A> not
+preprocess ANSI <A HREF="intro.html#escape">escape</A> sequences, these will be sent raw to the callback.
+However, change of PTY size can be signaled to the slave using |<A HREF="eval.html#jobresize()">jobresize()</A>|.
+See also |<A HREF="nvim_terminal_emulator.html#terminal-emulator">terminal-emulator</A>|.
+
+Terminal characteristics (termios) for |<A HREF="various.html#:terminal">:terminal</A>| and PTY channels are copied
+from the host TTY, or if Nvim is |<A HREF="starting.html#--headless">--headless</A>| <A HREF="motion.html#it">it</A> uses default values:
+<B>    :echo system('nvim --headless +"te stty -a" +"sleep 1" +"1,/^$/print" +q')</B>
+
+==============================================================================
+
+3. Communicating using <A HREF="api.html#msgpack-rpc">msgpack-rpc</A>			      *<A NAME="channel-rpc"></A><B>channel-rpc</B>*
+
+When channels are opened with the `rpc` option set to true, the <A HREF="#channel">channel</A> can be
+used for remote method calls in both directions, see |<A HREF="api.html#msgpack-rpc">msgpack-rpc</A>|. Note that
+<A HREF="api.html#rpc">rpc</A> channels are implicitly trusted and the process at the other end can
+invoke any |<A HREF="api.html#api">api</A>| function!
+
+==============================================================================
+
+4. Standard IO <A HREF="#channel">channel</A>					    *<A NAME="channel-stdio"></A><B>channel-stdio</B>*
+
+Nvim uses stdin/stdout to interact with the user over the <A HREF="nvim_terminal_emulator.html#terminal">terminal</A> interface
+(TUI). If Nvim is |<A HREF="starting.html#--headless">--headless</A>| the <A HREF="term.html#TUI">TUI</A> is not started and stdin/stdout can be
+used <A HREF="motion.html#as">as</A> a <A HREF="#channel">channel</A>. See also |<A HREF="starting.html#--embed">--embed</A>|.
+
+Call |<A HREF="eval.html#stdioopen()">stdioopen()</A>| during |<A HREF="starting.html#startup">startup</A>| to open the stdio channel <A HREF="motion.html#as">as</A> |<A HREF="#channel-id">channel-id</A>| 1.
+Nvim's stderr is always available <A HREF="motion.html#as">as</A> |<A HREF="eval.html#v:stderr">v:stderr</A>|, a write-only bytes <A HREF="#channel">channel</A>.
+
+Example:
+<B>    func! OnEvent(id, data, event)</B>
+<B>      if a:data == [""]</B>
+<B>        quit</B>
+<B>      end</B>
+<B>      call chansend(a:id, map(a:data, {i,v -&gt; toupper(v)}))</B>
+<B>    endfunc</B>
+<B>    call stdioopen({'on_stdin': 'OnEvent'})</B>
+ 
+Put this in `uppercase.vim` and run: 
+<B>    nvim --headless --cmd "source uppercase.vim"</B>
+
+==============================================================================
+<A HREF="#top">top</A> - <A HREF="index.html">main help file</A>
+</PRE>
+    </div>
+
+    <footer>
+      <div class="container">
+        Generated Wed Nov 11 14:13:41 UTC 2020 from <a href="https://github.com/neovim/neovim/commit/0a95549d66df63c06d775fcc329f7b63cbb46b2f"><code>0a95549</code></a>.
+      </div>
+    </footer>
+  </body>
+</html>

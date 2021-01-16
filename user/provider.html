@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta content="IE=edge" http-equiv="X-UA-Compatible">
+    <meta content="width=device-width, initial-scale=1" name="viewport">
+    <title>Nvim documentation: provider</title>
+    <link href="https://fonts.googleapis.com/css?family=Lato:400,700,900" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/normalize/3.0.0/normalize.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.5/css/bootstrap.min.css">
+    <link href="/css/main.css" rel="stylesheet">
+    <!--[if lt IE 9]>
+      <script src="https://oss.maxcdn.com/libs/html5shiv/3.7.0/html5shiv.js"></script>
+      <script src="https://oss.maxcdn.com/libs/respond.js/1.4.2/respond.min.js"></script>
+    <![endif]-->
+    
+  </head>
+  <body>
+    <header class="navbar">
+      <div class="container">
+        <nav class="navbar">
+          <div class="container-fluid">
+            <div class="navbar-header">
+
+              <a href="/" class="navbar-brand">
+                <img src="/images/logo@2x.png" id="navbar-logo" alt="Neovim">
+              </a>
+            </div>
+          </div>
+        </nav>
+      </div>
+    </header>
+
+    <div class="container">
+      <h1>Nvim documentation: provider</h1>
+<A NAME="top"></A>
+<A HREF="index.html">main help file</A>
+
+<HR>
+<PRE>
+
+*<A NAME="provider.txt"></A><B>provider.txt</B>*		Nvim
+
+
+		 NVIM REFERENCE MANUAL    by Thiago de Arruda
+
+
+
+Providers	 				*<A NAME="provider"></A><B>provider</B>*
+
+Nvim delegates some features to dynamic &quot;providers&quot;. This document describes
+the providers and how to install them.
+
+						*<A NAME="E319"></A><B>E319</B>*
+Use of a feature requiring a missing <A HREF="#provider">provider</A> is an error:
+
+<B>    E319: No "foo" provider found. Run ":checkhealth provider"</B>
+
+Run the |<A HREF="pi_health.html#:checkhealth">:checkhealth</A>| command, and review the sections below.
+
+				      Type |<A HREF="various.html#gO">gO</A>| to see the table of contents.
+
+==============================================================================
+
+<A HREF="if_pyth.html#Python">Python</A> integration				*<A NAME="provider-python"></A><B>provider-python</B>*
+
+Nvim supports <A HREF="if_pyth.html#Python">Python</A> |<A HREF="remote_plugin.html#remote-plugin">remote-plugin</A>|<A HREF="change.html#s">s</A> and the Vim legacy |<A HREF="if_pyth.html#python2">python2</A>| and
+|<A HREF="if_pyth.html#python3">python3</A>| interfaces (which are implemented <A HREF="motion.html#as">as</A> remote-plugins).
+
+Note: Only the Vim 7.3 legacy interface is supported, not later features such
+<A HREF="motion.html#as">as</A> |<A HREF="vim_diff.html#python-bindeval">python-bindeval</A>| (Vim 7.4); use the Nvim <A HREF="api.html#API">API</A> instead.
+
+
+<B><FONT color="#54A23D">PYTHON QUICKSTART </FONT></B>
+
+To use <A HREF="if_pyth.html#Python">Python</A> plugins, you need the &quot;<A HREF="develop.html#pynvim">pynvim</A>&quot; module. Run |<A HREF="pi_health.html#:checkhealth">:checkhealth</A>| to see
+if you already have <A HREF="motion.html#it">it</A> (some package managers install the module with Nvim
+itself).
+
+For <A HREF="if_pyth.html#Python">Python</A> 3 plugins:
+1. Make sure <A HREF="if_pyth.html#Python">Python</A> 3.4+ is available in your $PATH.
+2. Install the module (try &quot;<A HREF="if_pyth.html#python">python</A>&quot; if &quot;<A HREF="if_pyth.html#python3">python3</A>&quot; is missing):
+<B>   python3 -m pip install --user --upgrade pynvim</B>
+
+For <A HREF="if_pyth.html#Python">Python</A> 2 plugins:
+1. Make sure <A HREF="if_pyth.html#Python">Python</A> 2.7 is available in your $PATH.
+2. Install the module (try &quot;<A HREF="if_pyth.html#python">python</A>&quot; if &quot;<A HREF="if_pyth.html#python2">python2</A>&quot; is missing):
+<B>   python2 -m pip install --user --upgrade pynvim</B>
+
+The pip `--upgrade` flag ensures that you get the latest version even if
+a previous version was already installed.
+
+See also |<A HREF="#python-virtualenv">python-virtualenv</A>|.
+
+Note: The old &quot;neovim&quot; module was renamed to &quot;<A HREF="develop.html#pynvim">pynvim</A>&quot;.
+https://github.com/neovim/neovim/wiki/Following-HEAD#20181118
+If you run into problems, uninstall _both_ then install &quot;<A HREF="develop.html#pynvim">pynvim</A>&quot; again:
+<B>  python -m pip uninstall neovim pynvim</B>
+<B>  python -m pip install --user --upgrade pynvim</B>
+
+
+<B><FONT color="#54A23D">PYTHON PROVIDER CONFIGURATION </FONT></B>
+
+						*<A NAME="g:python_host_prog"></A><B>g:python_host_prog</B>*
+Command to start <A HREF="if_pyth.html#Python">Python</A> 2 (executable, not directory). Setting this makes
+<A HREF="starting.html#startup">startup</A> faster. Useful for working with virtualenvs. Must be set before any
+check for has(&quot;python2&quot;). 
+<B>    let g:python_host_prog  = '/path/to/python'</B>
+ 
+
+						*<A NAME="g:python3_host_prog"></A><B>g:python3_host_prog</B>*
+Command to start <A HREF="if_pyth.html#Python">Python</A> 3 (executable, not directory). Setting this makes
+<A HREF="starting.html#startup">startup</A> faster. Useful for working with virtualenvs. Must be set before any
+check for has(&quot;python3&quot;). 
+<B>    let g:python3_host_prog = '/path/to/python3'</B>
+ 
+
+						*<A NAME="g:loaded_python_provider"></A><B>g:loaded_python_provider</B>*
+To disable <A HREF="if_pyth.html#Python">Python</A> 2 support:
+<B>    let g:loaded_python_provider = 0</B>
+ 
+
+						*<A NAME="g:loaded_python3_provider"></A><B>g:loaded_python3_provider</B>*
+To disable <A HREF="if_pyth.html#Python">Python</A> 3 support:
+<B>    let g:loaded_python3_provider = 0</B>
+
+
+<B><FONT color="#54A23D">PYTHON VIRTUALENVS </FONT></B>
+
+						*<A NAME="python-virtualenv"></A><B>python-virtualenv</B>*
+If you plan to use per-project virtualenvs often, you should assign one
+virtualenv for Neovim and hard-code the interpreter path via
+|<A HREF="#g:python3_host_prog">g:python3_host_prog</A>| (or |<A HREF="#g:python_host_prog">g:python_host_prog</A>|) so that the &quot;<A HREF="develop.html#pynvim">pynvim</A>&quot; package
+is not required for each virtualenv.
+
+Example using pyenv:
+<B>    pyenv install 3.4.4</B>
+<B>    pyenv virtualenv 3.4.4 py3nvim</B>
+<B>    pyenv activate py3nvim</B>
+<B>    pip install pynvim</B>
+<B>    pyenv which python  # Note the path</B>
+The last command reports the interpreter path, add <A HREF="motion.html#it">it</A> to your <A HREF="starting.html#init.vim">init.vim</A>:
+<B>    let g:python3_host_prog = '/path/to/py3nvim/bin/python'</B>
+
+See also: https://github.com/zchee/deoplete-jedi/wiki/Setting-up-Python-for-Neovim
+
+==============================================================================
+
+<A HREF="if_ruby.html#Ruby">Ruby</A> integration		    	      *<A NAME="provider-ruby"></A><B>provider-ruby</B>*
+
+Nvim supports <A HREF="if_ruby.html#Ruby">Ruby</A> |<A HREF="remote_plugin.html#remote-plugin">remote-plugin</A>|<A HREF="change.html#s">s</A> and the Vim legacy |<A HREF="if_ruby.html#ruby-vim">ruby-vim</A>| interface
+(which is itself implemented <A HREF="motion.html#as">as</A> a Nvim <A HREF="remote_plugin.html#remote-plugin">remote-plugin</A>).
+
+
+<B><FONT color="#54A23D">RUBY QUICKSTART </FONT></B>
+
+To use <A HREF="if_ruby.html#Ruby">Ruby</A> plugins with Nvim, install the latest &quot;neovim&quot; RubyGem:
+<B>    gem install neovim</B>
+
+Run |<A HREF="pi_health.html#:checkhealth">:checkhealth</A>| to see if your system is up-to-date.
+
+
+<B><FONT color="#54A23D">RUBY PROVIDER CONFIGURATION </FONT></B>
+
+						*<A NAME="g:loaded_ruby_provider"></A><B>g:loaded_ruby_provider</B>*
+To disable <A HREF="if_ruby.html#Ruby">Ruby</A> support:
+<B>    let g:loaded_ruby_provider = 0</B>
+ 
+
+						*<A NAME="g:ruby_host_prog"></A><B>g:ruby_host_prog</B>*
+Command to start the <A HREF="if_ruby.html#Ruby">Ruby</A> host. By default this is &quot;neovim-ruby-host&quot;. With
+project-local <A HREF="if_ruby.html#Ruby">Ruby</A> versions (via tools like RVM or rbenv) setting this can
+avoid the need to install the &quot;neovim&quot; gem in every project.
+
+To use an absolute path (e.g. to an rbenv installation):
+<B>    let g:ruby_host_prog = '~/.rbenv/versions/2.4.1/bin/neovim-ruby-host'</B>
+
+To use the RVM &quot;system&quot; <A HREF="if_ruby.html#Ruby">Ruby</A> installation:
+<B>    let g:ruby_host_prog = 'rvm system do neovim-ruby-host'</B>
+
+==============================================================================
+
+Perl integration				*<A NAME="provider-perl"></A><B>provider-perl</B>*
+
+Nvim supports Perl |<A HREF="remote_plugin.html#remote-plugin">remote-plugin</A>|<A HREF="change.html#s">s</A> on Unix platforms. Support for polling STDIN
+on MS-Windows is currently lacking from all known event loop implementations.
+The Vim legacy |<A HREF="if_perl.html#perl-vim">perl-vim</A>| interface is also supported (which is itself
+implemented <A HREF="motion.html#as">as</A> a Nvim <A HREF="remote_plugin.html#remote-plugin">remote-plugin</A>).
+https://github.com/jacquesg/p5-Neovim-Ext
+
+Note: Only <A HREF="if_perl.html#perl">perl</A> versions from 5.22 onward are supported.
+
+<B><FONT color="#54A23D">PERL QUICKSTART</FONT></B>
+
+To use <A HREF="if_perl.html#perl">perl</A> remote-plugins with Nvim, install the &quot;Neovim::Ext&quot; cpan package:
+<B>    cpanm -n Neovim::Ext</B>
+
+Run |<A HREF="pi_health.html#:checkhealth">:checkhealth</A>| to see if your system is up-to-date.
+
+
+<B><FONT color="#54A23D">PERL PROVIDER CONFIGURATION</FONT></B>
+
+						*<A NAME="g:loaded_perl_provider"></A><B>g:loaded_perl_provider</B>*
+To disable Perl support:
+<B>    :let g:loaded_perl_provider = 0</B>
+ 
+
+						*<A NAME="g:perl_host_prog"></A><B>g:perl_host_prog</B>*
+Command to start the Perl executable. Must be set before any
+check for has(&quot;perl&quot;). 
+<B>    let g:perl_host_prog = '/path/to/perl'</B>
+ 
+==============================================================================
+
+Node.js integration				*<A NAME="provider-nodejs"></A><B>provider-nodejs</B>*
+
+Nvim supports Node.js |<A HREF="remote_plugin.html#remote-plugin">remote-plugin</A>|<A HREF="change.html#s">s</A>.
+https://github.com/neovim/node-client/
+
+
+<B><FONT color="#54A23D">NODEJS QUICKSTART</FONT></B>
+
+To use javascript remote-plugins with Nvim, install the &quot;neovim&quot; npm package:
+<B>    npm install -g neovim</B>
+
+Run |<A HREF="pi_health.html#:checkhealth">:checkhealth</A>| to see if your system is up-to-date.
+
+
+<B><FONT color="#54A23D">NODEJS PROVIDER CONFIGURATION</FONT></B>
+
+						*<A NAME="g:loaded_node_provider"></A><B>g:loaded_node_provider</B>*
+To disable Node.js support:
+<B>    :let g:loaded_node_provider = 0</B>
+ 
+
+						*<A NAME="g:node_host_prog"></A><B>g:node_host_prog</B>*
+Command to start the Node.js host. Setting this makes <A HREF="starting.html#startup">startup</A> faster.
+
+By default, Nvim searches for &quot;neovim-node-host&quot; using &quot;npm root -g&quot;, which
+can be slow. To avoid this, set <A HREF="#g:node_host_prog">g:node_host_prog</A> to the host path:
+<B>    let g:node_host_prog = '/usr/local/bin/neovim-node-host'</B>
+ 
+==============================================================================
+
+Clipboard integration 			      *<A NAME="provider-clipboard"></A><B>provider-clipboard</B>* *<A NAME="clipboard"></A><B>clipboard</B>*
+
+Nvim has no direct connection to the system <A HREF="#clipboard">clipboard</A>. Instead <A HREF="motion.html#it">it</A> depends on
+a |<A HREF="#provider">provider</A>| which transparently uses shell commands to communicate with the
+system <A HREF="#clipboard">clipboard</A> or any other <A HREF="#clipboard">clipboard</A> &quot;backend&quot;.
+
+To ALWAYS use the <A HREF="#clipboard">clipboard</A> for ALL operations (instead of interacting with
+the '<A HREF="motion.html#+">+</A>' and/or '*' <A HREF="change.html#registers">registers</A> explicitly):
+<B>    set clipboard+=unnamedplus</B>
+
+See <A HREF="options.html#'clipboard'">'clipboard'</A> for details and <A HREF="options.html#options">options</A>.
+
+
+							      *<A NAME="clipboard-tool"></A><B>clipboard-tool</B>*
+The presence of a working <A HREF="#clipboard">clipboard</A> tool implicitly enables the '<A HREF="motion.html#+">+</A>' and '*'
+<A HREF="change.html#registers">registers</A>. Nvim looks for these <A HREF="#clipboard">clipboard</A> tools, in order of priority:
+
+  - |<A HREF="#g:clipboard">g:clipboard</A>|
+  - pbcopy, pbpaste (macOS)
+  - wl-copy, wl-paste (if $WAYLAND_DISPLAY is set)
+  - xclip (if $DISPLAY is set)
+  - xsel (if $DISPLAY is set)
+  - lemonade (for SSH) https://github.com/pocke/lemonade
+ - doitclient for SSH	<A HREF="http://www.chiark.greenend.org.uk/~sgtatham/doit/">http://www.chiark.greenend.org.uk/~sgtatham/doit/</A>
+  - win32yank (Windows)
+  - tmux (if $TMUX is set)
+
+
+								 *<A NAME="g:clipboard"></A><B>g:clipboard</B>*
+To configure a custom <A HREF="#clipboard">clipboard</A> tool, set <A HREF="#g:clipboard">g:clipboard</A> to a dictionary.
+For example this configuration integrates the tmux <A HREF="#clipboard">clipboard</A>:
+
+<B>    let g:clipboard = {</B>
+<B>          \   'name': 'myClipboard',</B>
+<B>          \   'copy': {</B>
+<B>          \      '+': ['tmux', 'load-buffer', '-'],</B>
+<B>          \      '*': ['tmux', 'load-buffer', '-'],</B>
+<B>          \    },</B>
+<B>          \   'paste': {</B>
+<B>          \      '+': ['tmux', 'save-buffer', '-'],</B>
+<B>          \      '*': ['tmux', 'save-buffer', '-'],</B>
+<B>          \   },</B>
+<B>          \   'cache_enabled': 1,</B>
+<B>          \ }</B>
+
+If &quot;cache_enabled&quot; is |<A HREF="eval.html#TRUE">TRUE</A>| then when a selection is copied Nvim will cache
+the selection until the copy command process dies. When pasting, if the copy
+process has not died the cached selection is applied.
+
+<A HREF="#g:clipboard">g:clipboard</A> can also use <A HREF="eval.html#functions">functions</A> (see |<A HREF="eval.html#lambda">lambda</A>|) instead of strings.
+For example this configuration uses the g:foo variable <A HREF="motion.html#as">as</A> a fake <A HREF="#clipboard">clipboard</A>:
+
+<B>    let g:clipboard = {</B>
+<B>          \   'name': 'myClipboard',</B>
+<B>          \   'copy': {</B>
+<B>          \      '+': {lines, regtype -&gt; extend(g:, {'foo': [lines, regtype]}) },</B>
+<B>          \      '*': {lines, regtype -&gt; extend(g:, {'foo': [lines, regtype]}) },</B>
+<B>          \    },</B>
+<B>          \   'paste': {</B>
+<B>          \      '+': {-&gt; get(g:, 'foo', [])},</B>
+<B>          \      '*': {-&gt; get(g:, 'foo', [])},</B>
+<B>          \   },</B>
+<B>          \ }</B>
+
+The &quot;copy&quot; function stores a <A HREF="eval.html#list">list</A> of lines and the <A HREF="intro.html#register">register</A> type. The &quot;<A HREF="#paste">paste</A>&quot;
+function returns the <A HREF="#clipboard">clipboard</A> <A HREF="motion.html#as">as</A> a `[lines, regtype]` <A HREF="eval.html#list">list</A>, where `lines` is
+a <A HREF="eval.html#list">list</A> of lines and `regtype` is a <A HREF="intro.html#register">register</A> type conforming to |<A HREF="eval.html#setreg()">setreg()</A>|.
+
+==============================================================================
+
+Paste 							*<A NAME="provider-paste"></A><B>provider-paste</B>* *<A NAME="paste"></A><B>paste</B>*
+
+&quot;Paste&quot; is a separate concept from |clipboard|: <A HREF="#paste">paste</A> means &quot;dump a bunch of
+text to the editor&quot;, whereas <A HREF="#clipboard">clipboard</A> provides features like |<A HREF="intro.html#quote-+">quote-+</A>| to get
+and set the OS <A HREF="#clipboard">clipboard</A> directly.  For example, middle-click or CTRL-SHIFT-v
+(macOS: CMD-v) in your <A HREF="nvim_terminal_emulator.html#terminal">terminal</A> is &quot;<A HREF="#paste">paste</A>&quot;, not &quot;<A HREF="#clipboard">clipboard</A>&quot;: the <A HREF="nvim_terminal_emulator.html#terminal">terminal</A>
+application (Nvim) just gets a stream of text, <A HREF="motion.html#it">it</A> does not interact with the
+<A HREF="#clipboard">clipboard</A> directly.
+
+
+							*<A NAME="bracketed-paste-mode"></A><B>bracketed-paste-mode</B>*
+Pasting in the |<A HREF="term.html#TUI">TUI</A>| depends on the &quot;bracketed paste&quot; <A HREF="nvim_terminal_emulator.html#terminal">terminal</A> capability,
+which allows <A HREF="nvim_terminal_emulator.html#terminal">terminal</A> applications to distinguish between user input and
+pasted text.  https://cirw.in/blog/bracketed-paste
+This works automatically if your <A HREF="nvim_terminal_emulator.html#terminal">terminal</A> supports <A HREF="motion.html#it">it</A>.
+
+
+							*<A NAME="ui-paste"></A><B>ui-paste</B>*
+GUIs can paste by calling |<A HREF="api.html#nvim_paste()">nvim_paste()</A>|.
+
+<B><FONT color="#54A23D">PASTE BEHAVIOR </FONT></B>
+
+Paste inserts text after the cursor.  Lines break at <A HREF="motion.html#&lt;NL&gt;">&lt;NL&gt;</A>, <A HREF="motion.html#&lt;CR&gt;">&lt;CR&gt;</A>, and &lt;CR&gt;&lt;NL&gt;.
+When pasting a huge amount of text, screen-updates are throttled and the
+message area shows a &quot;<A HREF="eval.html#...">...</A>&quot; pulse.
+
+In cmdline-mode only the first line is pasted, to avoid accidentally executing
+many commands.  Use the |<A HREF="cmdline.html#cmdline-window">cmdline-window</A>| if you really want to <A HREF="#paste">paste</A> multiple
+lines to the <A HREF="cmdline.html#cmdline">cmdline</A>.
+
+You can implement a custom paste handler by redefining |<A HREF="vim.html">vim.paste()</A>|.
+Example:
+
+<B>  vim.paste = (function(lines, phase)</B>
+<B>    vim.api.nvim_put(lines, 'c', true, true)</B>
+<B>  end)</B>
+
+==============================================================================
+
+X11 selection mechanism			      *<A NAME="clipboard-x11"></A><B>clipboard-x11</B>* *<A NAME="x11-selection"></A><B>x11-selection</B>*
+
+X11 <A HREF="#clipboard">clipboard</A> providers store text in &quot;selections&quot;. Selections are owned by an
+application, so when the application gets closed, the selection text is lost.
+The contents of selections are held by the originating application (e.g., upon
+a copy), and only passed to another application when that other application
+requests them (e.g., upon a <A HREF="#paste">paste</A>).
+
+
+				*<A NAME="primary-selection"></A><B>primary-selection</B>* *<A NAME="quotestar"></A><B>quotestar</B>* *<A NAME="quoteplus"></A><B>quoteplus</B>* *<A NAME="quote+"></A><B>quote+</B>*
+
+There are three documented X11 selections: PRIMARY, SECONDARY, and CLIPBOARD.
+CLIPBOARD is typically used in X11 applications for copy/paste operations
+(CTRL-c/CTRL-v), while PRIMARY is used for the last selected text, which is
+generally inserted with the middle mouse button.
+
+Nvim's X11 <A HREF="#clipboard">clipboard</A> providers only use the PRIMARY and CLIPBOARD selections,
+for the &quot;*&quot; and &quot;<A HREF="motion.html#+">+</A>&quot; <A HREF="change.html#registers">registers</A>, respectively.
+
+==============================================================================
+<A HREF="#top">top</A> - <A HREF="index.html">main help file</A>
+</PRE>
+    </div>
+
+    <footer>
+      <div class="container">
+        Generated Wed Nov 11 14:13:43 UTC 2020 from <a href="https://github.com/neovim/neovim/commit/0a95549d66df63c06d775fcc329f7b63cbb46b2f"><code>0a95549</code></a>.
+      </div>
+    </footer>
+  </body>
+</html>

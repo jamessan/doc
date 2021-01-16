@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta content="IE=edge" http-equiv="X-UA-Compatible">
+    <meta content="width=device-width, initial-scale=1" name="viewport">
+    <title>Nvim documentation: treesitter</title>
+    <link href="https://fonts.googleapis.com/css?family=Lato:400,700,900" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/normalize/3.0.0/normalize.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.5/css/bootstrap.min.css">
+    <link href="/css/main.css" rel="stylesheet">
+    <!--[if lt IE 9]>
+      <script src="https://oss.maxcdn.com/libs/html5shiv/3.7.0/html5shiv.js"></script>
+      <script src="https://oss.maxcdn.com/libs/respond.js/1.4.2/respond.min.js"></script>
+    <![endif]-->
+    
+  </head>
+  <body>
+    <header class="navbar">
+      <div class="container">
+        <nav class="navbar">
+          <div class="container-fluid">
+            <div class="navbar-header">
+
+              <a href="/" class="navbar-brand">
+                <img src="/images/logo@2x.png" id="navbar-logo" alt="Neovim">
+              </a>
+            </div>
+          </div>
+        </nav>
+      </div>
+    </header>
+
+    <div class="container">
+      <h1>Nvim documentation: treesitter</h1>
+<A NAME="top"></A>
+<A HREF="index.html">main help file</A>
+
+<HR>
+<PRE>
+
+*<A NAME="treesitter.txt"></A><B>treesitter.txt</B>*    Nvim
+
+
+			    NVIM REFERENCE MANUAL
+
+
+
+Tree-sitter integration					*<A NAME="treesitter"></A><B>treesitter</B>*
+
+                                      Type |<A HREF="various.html#gO">gO</A>| to see the table of contents.
+
+------------------------------------------------------------------------------
+
+VIM.TREESITTER						*<A NAME="lua-treesitter"></A><B>lua-treesitter</B>*
+
+Nvim integrates the tree-sitter library for incremental parsing of <A HREF="windows.html#buffers">buffers</A>.
+
+Currently Nvim does not provide the tree-sitter parsers, instead these must
+be built separately, for instance using the tree-sitter utility. The only
+exception is a C parser being included in official builds for testing
+purposes. Parsers are searched for <A HREF="motion.html#as">as</A> `parser/{lang}.*` in any <A HREF="options.html#'runtimepath'">'runtimepath'</A>
+directory. A parser can also be loaded manually using a full path:
+
+<B>    vim.treesitter.require_language("python", "/path/to/python.so")</B>
+
+ Create a parser for a buffer and a given language (if another <A HREF="usr_05.html#plugin">plugin</A> uses the
+same buffer/language combination, <A HREF="motion.html#it">it</A> will be safely reused). Use
+
+<B>    parser = vim.treesitter.get_parser(bufnr, lang)</B>
+
+ `bufnr=0` can be used for current buffer. `lang` will default to <A HREF="options.html#'filetype'">'filetype'</A>  (this
+doesn't work yet for some <A HREF="filetype.html#filetypes">filetypes</A> like &quot;cpp&quot;) Currently, the parser will be
+retained for the lifetime of a buffer but this is subject to change. A <A HREF="usr_05.html#plugin">plugin</A>
+should keep a reference to the parser object <A HREF="motion.html#as">as</A> long <A HREF="motion.html#as">as</A> <A HREF="motion.html#it">it</A> wants incremental
+updates.
+
+
+Parser files						*<A NAME="treesitter-parsers"></A><B>treesitter-parsers</B>*
+
+Parsers are the heart of tree-sitter. They are libraries that tree-sitter will
+search for in the `parser` runtime directory.
+
+For a parser to be available for a given language, there must be a file named
+`{lang}.so` within the parser directory.
+
+
+Parser methods						*<A NAME="lua-treesitter-parser"></A><B>lua-treesitter-parser</B>*
+
+
+<A HREF="#tsparser:parse()">tsparser:parse()</A>					*<A NAME="tsparser:parse()"></A><B>tsparser:parse()</B>*
+Whenever you need to access the current <A HREF="syntax.html#syntax">syntax</A> tree, parse the buffer:
+
+<B>    tstree = parser:parse()</B>
+
+ This will return an immutable tree that represents the current state of the
+buffer. When the <A HREF="usr_05.html#plugin">plugin</A> wants to access the state after a (possible) edit
+<A HREF="motion.html#it">it</A> should call `parse()` again. If the buffer wasn't edited, the same tree will
+be returned again without extra work. If the buffer was parsed before,
+incremental parsing will be done of the changed parts.
+
+NB: to use the parser directly inside a |<A HREF="intro.html#nvim_buf_attach">nvim_buf_attach</A>| <A HREF="lua.html#Lua">Lua</A> callback, you must
+call `get_parser()` before you <A HREF="intro.html#register">register</A> your callback. But preferably parsing
+shouldn't be done directly in the change callback anyway <A HREF="motion.html#as">as</A> they will be very
+frequent. Rather a <A HREF="usr_05.html#plugin">plugin</A> that does any kind of analysis on a tree should use
+a <A HREF="eval.html#timer">timer</A> to throttle too frequent updates.
+
+
+tsparser:set_included_ranges({ranges})			*<A NAME="tsparser:set_included_ranges()"></A><B>tsparser:set_included_ranges()</B>*
+	Changes the ranges the parser should consider. This is used for
+	language injection.  {ranges} should be of the form (all zero-based):
+<B>	{</B>
+<B>		{start_node, end_node},</B>
+<B>		...</B>
+<B>	}</B>
+ 
+	NOTE: `start_node` and `end_node` are both <A HREF="motion.html#inclusive">inclusive</A>.
+
+
+Tree methods						*<A NAME="lua-treesitter-tree"></A><B>lua-treesitter-tree</B>*
+
+
+<A HREF="#tstree:root()">tstree:root()</A>						*<A NAME="tstree:root()"></A><B>tstree:root()</B>*
+	Return the root node of this tree.
+
+
+<A HREF="#tstree:copy()">tstree:copy()</A>						*<A NAME="tstree:copy()"></A><B>tstree:copy()</B>*
+	Returns a copy of the `tstree`.
+
+
+
+Node methods						*<A NAME="lua-treesitter-node"></A><B>lua-treesitter-node</B>*
+
+
+<A HREF="#tsnode:parent()">tsnode:parent()</A>						*<A NAME="tsnode:parent()"></A><B>tsnode:parent()</B>*
+	Get the node's immediate parent.
+
+
+<A HREF="#tsnode:iter_children()">tsnode:iter_children()</A>					*<A NAME="tsnode:iter_children()"></A><B>tsnode:iter_children()</B>*
+	Iterates over all the direct children of {tsnode}, regardless of
+	wether they are named or not.
+	Returns the child node plus the eventual field name corresponding to
+	this child node.
+
+
+tsnode:field({name})					*<A NAME="tsnode:field()"></A><B>tsnode:field()</B>*
+	Returns a table of the nodes corresponding to the {name} field.
+
+
+<A HREF="#tsnode:child_count()">tsnode:child_count()</A>					*<A NAME="tsnode:child_count()"></A><B>tsnode:child_count()</B>*
+	Get the node's number of children.
+
+
+tsnode:child({index})						*<A NAME="tsnode:child()"></A><B>tsnode:child()</B>*
+	Get the node's child at the given {index}, where zero represents the
+	first child.
+
+
+<A HREF="#tsnode:named_child_count()">tsnode:named_child_count()</A>			*<A NAME="tsnode:named_child_count()"></A><B>tsnode:named_child_count()</B>*
+	Get the node's number of named children.
+
+
+tsnode:named_child({index})					*<A NAME="tsnode:named_child()"></A><B>tsnode:named_child()</B>*
+	Get the node's named child at the given {index}, where zero represents
+	the first named child.
+
+
+<A HREF="#tsnode:start()">tsnode:start()</A>						*<A NAME="tsnode:start()"></A><B>tsnode:start()</B>*
+	Get the node's start position. Return three values: the row, column
+	and total byte <A HREF="intro.html#count">count</A> (all zero-based).
+
+
+<A HREF="#tsnode:end_()">tsnode:end_()</A>						*<A NAME="tsnode:end_()"></A><B>tsnode:end_()</B>*
+	Get the node's end position. Return three values: the row, column
+	and total byte <A HREF="intro.html#count">count</A> (all zero-based).
+
+
+<A HREF="#tsnode:range()">tsnode:range()</A>						*<A NAME="tsnode:range()"></A><B>tsnode:range()</B>*
+	Get the range of the node. Return four values: the row, column
+	of the start position, then the row, column of the end position.
+
+
+<A HREF="#tsnode:type()">tsnode:type()</A>						*<A NAME="tsnode:type()"></A><B>tsnode:type()</B>*
+	Get the node's type <A HREF="motion.html#as">as</A> a <A HREF="eval.html#string">string</A>.
+
+
+<A HREF="#tsnode:symbol()">tsnode:symbol()</A>						*<A NAME="tsnode:symbol()"></A><B>tsnode:symbol()</B>*
+	Get the node's type <A HREF="motion.html#as">as</A> a numerical id.
+
+
+<A HREF="#tsnode:named()">tsnode:named()</A>						*<A NAME="tsnode:named()"></A><B>tsnode:named()</B>*
+	Check if the node is named. Named nodes correspond to named rules in
+	the  grammar, whereas anonymous nodes correspond to <A HREF="eval.html#string">string</A> literals
+	in the grammar.
+
+
+<A HREF="#tsnode:missing()">tsnode:missing()</A>					*<A NAME="tsnode:missing()"></A><B>tsnode:missing()</B>*
+	Check if the node is missing. Missing nodes are inserted by the
+	parser in order to recover from certain kinds of <A HREF="syntax.html#syntax">syntax</A> <A HREF="message.html#errors">errors</A>.
+
+
+<A HREF="#tsnode:has_error()">tsnode:has_error()</A>					*<A NAME="tsnode:has_error()"></A><B>tsnode:has_error()</B>*
+	Check if the node is a <A HREF="syntax.html#syntax">syntax</A> error or contains any <A HREF="syntax.html#syntax">syntax</A> <A HREF="message.html#errors">errors</A>.
+
+
+<A HREF="#tsnode:sexpr()">tsnode:sexpr()</A>						*<A NAME="tsnode:sexpr()"></A><B>tsnode:sexpr()</B>*
+	Get an S-expression representing the node <A HREF="motion.html#as">as</A> a <A HREF="eval.html#string">string</A>.
+
+
+<A HREF="#tsnode:id()">tsnode:id()</A>							*<A NAME="tsnode:id()"></A><B>tsnode:id()</B>*
+	Get an unique identier for the node inside its own tree.
+
+	No guarantees are made about this identifer's internal representation,
+	except for being a primitive <A HREF="lua.html#lua">lua</A> type with value equality (so not a table).
+	Presently <A HREF="motion.html#it">it</A> is a (non-printable) <A HREF="eval.html#string">string</A>.
+
+	NB: the id is not guaranteed to be unique for nodes from different trees.
+
+tsnode:descendant_for_range({start_row}, {start_col}, {end_row}, {end_col})
+
+						*<A NAME="tsnode:descendant_for_range()"></A><B>tsnode:descendant_for_range()</B>*
+	Get the smallest node within this node that spans the given range of
+	(row, column) positions
+
+tsnode:named_descendant_for_range({start_row}, {start_col}, {end_row}, {end_col})
+
+					*<A NAME="tsnode:named_descendant_for_range()"></A><B>tsnode:named_descendant_for_range()</B>*
+	Get the smallest named node within this node that spans the given
+	range of (row, column) positions
+
+
+Query methods						*<A NAME="lua-treesitter-query"></A><B>lua-treesitter-query</B>*
+
+Tree-sitter queries are supported, with some limitations. Currently, the only
+supported match predicate is `eq?` (both comparing a capture against a <A HREF="eval.html#string">string</A>
+and two captures against each other).
+
+A `query` consists of one or more patterns. A `pattern` is defined over node
+types in the <A HREF="syntax.html#syntax">syntax</A> tree.  A `match` corresponds to specific elements of the
+<A HREF="syntax.html#syntax">syntax</A> tree which match a <A HREF="pattern.html#pattern">pattern</A>. Patterns may optionally define captures
+and predicates. A `capture` allows you to associate names with a specific
+node in a <A HREF="pattern.html#pattern">pattern</A>. A `predicate` adds arbitrary metadata and conditional data
+to a match.
+
+vim.treesitter.parse_query({lang}, {query})
+
+						*<A NAME="vim.treesitter.parse_query()"></A><B>vim.treesitter.parse_query()</B>*
+	Parse {query} <A HREF="motion.html#as">as</A> a <A HREF="eval.html#string">string</A>. (If the query is in a file, the caller
+        should read the contents into a <A HREF="eval.html#string">string</A> before calling).
+
+	Returns a `Query` (see |<A HREF="#lua-treesitter-query">lua-treesitter-query</A>|) object which can be used to
+	search nodes in the <A HREF="syntax.html#syntax">syntax</A> tree for the patterns defined in {query}
+	using `iter_*` methods below. Exposes `info` and `captures` with
+	additional information about the {query}.
+	  - `captures` contains the <A HREF="eval.html#list">list</A> of unique capture names defined in
+	    {query}.
+	  -` info.captures` also points to `captures`.
+	  - `info.patterns` contains information about predicates.
+
+
+query:iter_captures({node}, {bufnr}, {start_row}, {end_row})
+
+							*<A NAME="query:iter_captures()"></A><B>query:iter_captures()</B>*
+	Iterate over all captures from all matches inside {node}.
+	{bufnr} is needed if the query contains predicates, then the caller
+	must ensure to use a freshly parsed tree consistent with the current
+	text of the buffer. {start_row} and {end_row} can be used to limit
+	matches inside a row range (this is typically used with root node
+	<A HREF="motion.html#as">as</A> the node, <A HREF="insert.html#i">i</A> <A HREF="motion.html#e">e</A> to get <A HREF="syntax.html#syntax">syntax</A> highlight matches in the current
+	viewport)
+
+	The iterator returns two values, a numeric id identifying the capture
+	and the captured node. The following example shows how to get captures
+	by name:
+
+<B>	for id, node in query:iter_captures(tree:root(), bufnr, first, last) do</B>
+<B>	  local name = query.captures[id] -- name of the capture in the query</B>
+<B>	  -- typically useful info about the node:</B>
+<B>	  local type = node:type() -- type of the captured node</B>
+<B>	  local row1, col1, row2, col2 = node:range() -- range of the capture</B>
+<B>	  ... use the info here ...</B>
+<B>	end</B>
+ 
+query:iter_matches({node}, {bufnr}, {start_row}, {end_row})
+
+							*<A NAME="query:iter_matches()"></A><B>query:iter_matches()</B>*
+	Iterate over all matches within a node. The arguments are the same <A HREF="motion.html#as">as</A>
+	for |<A HREF="#query:iter_captures()">query:iter_captures()</A>| but the iterated values are different:
+	an (1-based) index of the <A HREF="pattern.html#pattern">pattern</A> in the query, and a table <A HREF="map.html#mapping">mapping</A>
+	capture indices to nodes. If the query has more than one <A HREF="pattern.html#pattern">pattern</A>
+	the capture table might be sparse, and e.g. `pairs` should be used and not
+	`ipairs`. Here an example iterating over all captures in
+	every match:
+
+<B>	for pattern, match in cquery:iter_matches(tree:root(), bufnr, first, last) do</B>
+<B>	  for id,node in pairs(match) do</B>
+<B>	    local name = query.captures[id]</B>
+<B>	    -- `node` was captured by the `name` capture in the match</B>
+<B>	    ... use the info here ...</B>
+<B>	  end</B>
+<B>	end</B>
+
+
+Treesitter Query Predicates				*<A NAME="lua-treesitter-predicates"></A><B>lua-treesitter-predicates</B>*
+
+When <A HREF="editing.html#writing">writing</A> queries for <A HREF="#treesitter">treesitter</A>, one might use `predicates`, that is,
+special scheme nodes that are evaluted to verify things on a captured node for
+example, the |<A HREF="intro.html#eq?">eq?</A>| predicate :
+<B>	((identifier) @foo (#eq? @foo "foo"))</B>
+
+This will only match identifier corresponding to the `&quot;foo&quot;` text.
+Here is a <A HREF="eval.html#list">list</A> of built-in predicates :
+
+
+	`eq?`						*<A NAME="ts-predicate-eq?"></A><B>ts-predicate-eq?</B>*
+		This predicate will check text correspondance between nodes or
+		strings :
+<B>			((identifier) @foo (#eq? @foo "foo"))</B>
+<B>			((node1) @left (node2) @right (#eq? @left @right))</B>
+ 
+
+	`match?`					*<A NAME="ts-predicate-match?"></A><B>ts-predicate-match?</B>*
+
+	`vim-match?`					*<A NAME="ts-predicate-vim-match?"></A><B>ts-predicate-vim-match?</B>*
+		This will match if the provived vim regex matches the text
+		corresponding to a node :
+<B>			((idenfitier) @constant (#match? @constant "^[A-Z_]+$"))</B>
+ 		Note: the `^` and `$` anchors will respectively match the
+			start and end of the node's text.
+
+
+	`lua-match?`					*<A NAME="ts-predicate-lua-match?"></A><B>ts-predicate-lua-match?</B>*
+		This will match the same way than |<A HREF="intro.html#match?">match?</A>| but using <A HREF="lua.html#lua">lua</A>
+		regexes.
+	
+
+	`contains?`					*<A NAME="ts-predicate-contains?"></A><B>ts-predicate-contains?</B>*
+		Will check if any of the following arguments appears in the
+		text corresponding to the node :
+<B>			((identifier) @foo (#contains? @foo "foo"))</B>
+<B>			((identifier) @foo-bar (#contains @foo-bar "foo" "bar"))</B>
+ 
+
+							*<A NAME="lua-treesitter-not-predicate"></A><B>lua-treesitter-not-predicate</B>*
+Each predicate has a `not-` prefixed predicate that is just the negation of
+the predicate.
+
+
+					*<A NAME="vim.treesitter.query.add_predicate()"></A><B>vim.treesitter.query.add_predicate()</B>*
+vim.treesitter.query.add_predicate({name}, {handler})
+
+This adds a predicate with the name {name} to be used in queries.
+{handler} should be a function whose signature will be :
+<B>	handler(match, pattern, bufnr, predicate)</B>
+ 
+
+					*<A NAME="vim.treesitter.query.list_predicates()"></A><B>vim.treesitter.query.list_predicates()</B>*
+<A HREF="#vim.treesitter.query.list_predicates()">vim.treesitter.query.list_predicates()</A>
+
+This lists the currently available predicates to use in queries.
+
+
+Treesitter <A HREF="syntax.html#syntax">syntax</A> highlighting (WIP)			*<A NAME="lua-treesitter-highlight"></A><B>lua-treesitter-highlight</B>*
+
+NOTE: This is a partially implemented feature, and not usable <A HREF="motion.html#as">as</A> a default
+solution yet. What is documented here is a temporary interface indented
+for those who want to experiment with this feature and contribute to
+its <A HREF="develop.html#development">development</A>.
+
+Highlights are defined in the same query format <A HREF="motion.html#as">as</A> in the tree-sitter highlight
+crate, which some limitations and additions. Set a highlight query for a
+buffer with this code:
+
+<B>    local query = [[</B>
+<B>      "for" @keyword</B>
+<B>      "if" @keyword</B>
+<B>      "return" @keyword</B>
+
+<B>      (string_literal) @string</B>
+<B>      (number_literal) @number</B>
+<B>      (comment) @comment</B>
+
+<B>      (preproc_function_def name: (identifier) @function)</B>
+
+<B>      ; ... more definitions</B>
+<B>    ]]</B>
+
+<B>    highlighter = vim.treesitter.TSHighlighter.new(query, bufnr, lang)</B>
+<B>    -- alternatively, to use the current buffer and its filetype:</B>
+<B>    -- highlighter = vim.treesitter.TSHighlighter.new(query)</B>
+
+<B>    -- Don't recreate the highlighter for the same buffer, instead</B>
+<B>    -- modify the query like this:</B>
+<B>    local query2 = [[ ... ]]</B>
+<B>    highlighter:set_query(query2)</B>
+
+As mentioned above the supported predicate is currently only `eq?`. `match?`
+predicates behave like matching always fails. As an addition a capture which
+begin with an upper-case <A HREF="print.html#letter">letter</A> like `@WarningMsg` will map directly to this
+highlight group, if defined. Also if the predicate begins with upper-case and
+contains a dot only the part before the first will be interpreted <A HREF="motion.html#as">as</A> the
+highlight group. As an example, this warns of a binary <A HREF="eval.html#expression">expression</A> with two
+identical identifiers, highlighting both <A HREF="motion.html#as">as</A> YXXYhl-WarningMsg|:
+
+<B>    ((binary_expression left: (identifier) @WarningMsg.left right: (identifier) @WarningMsg.right)</B>
+<B>     (eq? @WarningMsg.left @WarningMsg.right))</B>
+
+<B> vim:tw=78:ts=8:ft=help:norl:</B>
+<A HREF="#top">top</A> - <A HREF="index.html">main help file</A>
+</PRE>
+    </div>
+
+    <footer>
+      <div class="container">
+        Generated Wed Nov 11 14:13:44 UTC 2020 from <a href="https://github.com/neovim/neovim/commit/0a95549d66df63c06d775fcc329f7b63cbb46b2f"><code>0a95549</code></a>.
+      </div>
+    </footer>
+  </body>
+</html>

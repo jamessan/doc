@@ -1,0 +1,23 @@
+var searchData=
+[
+  ['cfunc_5ffree_5ft',['cfunc_free_T',['../typval_8h.html#a2bd0c8c7102502c516fd16823233b5d4',1,'typval.h']]],
+  ['cfunc_5ft',['cfunc_T',['../typval_8h.html#adf0fca89a4d9184d0fe47dbd57a98ef4',1,'typval.h']]],
+  ['channel',['Channel',['../channel__defs_8h.html#afba562878a3535479ef88914e89ee38b',1,'channel_defs.h']]],
+  ['chanode_5ft',['chanode_t',['../xtypes_8h.html#a314d4bda563c8abf099dcf1981ed70bd',1,'xtypes.h']]],
+  ['char_5fu',['char_u',['../types_8h.html#abdb7824437f4665a51798757139f570b',1,'types.h']]],
+  ['chastore_5ft',['chastore_t',['../xtypes_8h.html#ae7bc16215073434a6f12a5a7867150c8',1,'xtypes.h']]],
+  ['chunksize_5ft',['chunksize_T',['../memline__defs_8h.html#aa35691cd819bfe167185b61e45f34b3d',1,'memline_defs.h']]],
+  ['cleanup_5ft',['cleanup_T',['../ex__eval_8h.html#aa8725d4382bfa11f23dec8ee14747f65',1,'ex_eval.h']]],
+  ['cmdarg_5ft',['cmdarg_T',['../normal_8h.html#a70441635bc55a8ca53dad85894c50c3c',1,'normal.h']]],
+  ['cmdlineinfo',['CmdlineInfo',['../ex__getln_8c.html#afc9109a183e7d08a5259980862d78784',1,'ex_getln.c']]],
+  ['colnr_5ft',['colnr_T',['../pos_8h.html#ae79e04a416bd6ce8ffe80e241850c0d2',1,'pos.h']]],
+  ['commanddefinition',['CommandDefinition',['../ex__cmds__defs_8h.html#ab0f7c960035ba5e33555aeecdfa3d7f4',1,'ex_cmds_defs.h']]],
+  ['commandlinestate',['CommandLineState',['../ex__getln_8c.html#a65f0cc2f9ce5d92a0166169a265c0b4d',1,'ex_getln.c']]],
+  ['compitem_5ft',['compitem_T',['../spellfile_8c.html#a719a4483ecb86384e262993a61c88051',1,'spellfile.c']]],
+  ['compl_5ft',['compl_T',['../edit_8c.html#adccfe8c86466edb666720eea861731a1',1,'edit.c']]],
+  ['completelistitemgetter',['CompleteListItemGetter',['../ex__getln_8h.html#afe4e87cdb466befc7fbf1f14b344c43c',1,'ex_getln.h']]],
+  ['conpty_5ft',['conpty_t',['../pty__conpty__win_8h.html#a7ad84a20b4540f5dad8dac29a67fc0ee',1,'pty_conpty_win.h']]],
+  ['csinfo_5ft',['csinfo_T',['../if__cscope__defs_8h.html#afab79f7a833ee807c99aac6a2cc44179',1,'if_cscope_defs.h']]],
+  ['cstr_5ft',['cstr_t',['../map__defs_8h.html#addf8207a180b4de4767810df282e6c48',1,'map_defs.h']]],
+  ['cursorentry_5ft',['cursorentry_T',['../cursor__shape_8h.html#a969091ff20a90bba172398e2e421f57b',1,'cursor_shape.h']]]
+];

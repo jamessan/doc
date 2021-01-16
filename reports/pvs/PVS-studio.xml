@@ -1,0 +1,798 @@
+<?xml version="1.0"?>
+<NewDataSet>
+  <PVS-Studio_Analysis_Log>
+    <Level>2</Level>
+    <ErrorType>warning</ErrorType>
+    <ErrorCode>V677</ErrorCode>
+    <Message>Custom declaration of a standard 'size_t' type. The declaration from system header files should be used instead.</Message>
+    <Line>62</Line>
+    <File>/usr/local/clang-7.0.0/lib/clang/7.0.0/include/stddef.h</File>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <Level>2</Level>
+    <ErrorType>warning</ErrorType>
+    <ErrorCode>V677</ErrorCode>
+    <Message>Custom declaration of a standard 'va_list' type. The declaration from system header files should be used instead.</Message>
+    <Line>30</Line>
+    <File>/usr/local/clang-7.0.0/lib/clang/7.0.0/include/stdarg.h</File>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <Level>2</Level>
+    <ErrorType>warning</ErrorType>
+    <ErrorCode>V677</ErrorCode>
+    <Message>Custom declaration of a standard 'wchar_t' type. The declaration from system header files should be used instead.</Message>
+    <Line>90</Line>
+    <File>/usr/local/clang-7.0.0/lib/clang/7.0.0/include/stddef.h</File>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <Level>2</Level>
+    <ErrorType>warning</ErrorType>
+    <ErrorCode>V677</ErrorCode>
+    <Message>Custom declaration of a standard 'ptrdiff_t' type. The declaration from system header files should be used instead.</Message>
+    <Line>51</Line>
+    <File>/usr/local/clang-7.0.0/lib/clang/7.0.0/include/stddef.h</File>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <Level>2</Level>
+    <ErrorType>warning</ErrorType>
+    <ErrorCode>V785</ErrorCode>
+    <Message>Constant expression in switch statement.</Message>
+    <Line>393</Line>
+    <File>./src/nvim/eval/typval_encode.c.h</File>
+    <CWECode>CWE-691</CWECode>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <Level>2</Level>
+    <ErrorType>warning</ErrorType>
+    <ErrorCode>V681</ErrorCode>
+    <Message>The language standard does not define an order in which the 'bt_dontwrite' functions will be called during evaluation of arguments.</Message>
+    <Line>3083</Line>
+    <File>./src/nvim/buffer.c</File>
+    <CWECode>CWE-758</CWECode>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <Level>2</Level>
+    <ErrorType>warning</ErrorType>
+    <ErrorCode>V677</ErrorCode>
+    <Message>Custom declaration of a standard 'wint_t' type. The declaration from system header files should be used instead.</Message>
+    <Line>132</Line>
+    <File>/usr/local/clang-7.0.0/lib/clang/7.0.0/include/stddef.h</File>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <Level>1</Level>
+    <ErrorType>error</ErrorType>
+    <ErrorCode>V1063</ErrorCode>
+    <Message>The modulo by 1 operation is meaningless. The result will always be zero.</Message>
+    <Line>5594</Line>
+    <File>./src/nvim/eval.c</File>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <Level>1</Level>
+    <ErrorType>error</ErrorType>
+    <ErrorCode>V576</ErrorCode>
+    <Message>Incorrect format. Consider checking the fourth actual argument of the 'vim_snprintf' function. The memsize type argument is expected.</Message>
+    <Line>5848</Line>
+    <File>./src/nvim/eval.c</File>
+    <CWECode>CWE-628</CWECode>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <Level>1</Level>
+    <ErrorType>error</ErrorType>
+    <ErrorCode>V576</ErrorCode>
+    <Message>Incorrect format. Consider checking the fifth actual argument of the 'vim_snprintf' function. The memsize type argument is expected.</Message>
+    <Line>5848</Line>
+    <File>./src/nvim/eval.c</File>
+    <CWECode>CWE-628</CWECode>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <Level>2</Level>
+    <ErrorType>warning</ErrorType>
+    <ErrorCode>V1051</ErrorCode>
+    <Message>Consider checking for misprints. It's possible that the 'trans_name' should be checked here.</Message>
+    <Line>6179</Line>
+    <File>./src/nvim/eval.c</File>
+    <Positions>
+      <Position lines="6179,6176">./src/nvim/eval.c</Position>
+    </Positions>
+    <CWECode>CWE-754</CWECode>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <Level>1</Level>
+    <ErrorType>error</ErrorType>
+    <ErrorCode>V1063</ErrorCode>
+    <Message>The modulo by 1 operation is meaningless. The result will always be zero.</Message>
+    <Line>283</Line>
+    <File>./src/nvim/eval/typval_encode.c.h</File>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <Level>1</Level>
+    <ErrorType>error</ErrorType>
+    <ErrorCode>V1063</ErrorCode>
+    <Message>The modulo by 1 operation is meaningless. The result will always be zero.</Message>
+    <Line>326</Line>
+    <File>./src/nvim/eval/typval_encode.c.h</File>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <Level>1</Level>
+    <ErrorType>error</ErrorType>
+    <ErrorCode>V576</ErrorCode>
+    <Message>Incorrect format. Consider checking the fourth actual argument of the 'vim_snprintf' function. The memsize type argument is expected.</Message>
+    <Line>326</Line>
+    <File>./src/nvim/eval/typval_encode.c.h</File>
+    <CWECode>CWE-628</CWECode>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <Level>1</Level>
+    <ErrorType>error</ErrorType>
+    <ErrorCode>V1063</ErrorCode>
+    <Message>The modulo by 1 operation is meaningless. The result will always be zero.</Message>
+    <Line>330</Line>
+    <File>./src/nvim/eval/typval_encode.c.h</File>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <Level>1</Level>
+    <ErrorType>error</ErrorType>
+    <ErrorCode>V1063</ErrorCode>
+    <Message>The modulo by 1 operation is meaningless. The result will always be zero.</Message>
+    <Line>489</Line>
+    <File>./src/nvim/eval/typval_encode.c.h</File>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <Level>1</Level>
+    <ErrorType>error</ErrorType>
+    <ErrorCode>V576</ErrorCode>
+    <Message>Incorrect format. Consider checking the fourth actual argument of the 'vim_snprintf' function. The memsize type argument is expected.</Message>
+    <Line>489</Line>
+    <File>./src/nvim/eval/typval_encode.c.h</File>
+    <CWECode>CWE-628</CWECode>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <Level>1</Level>
+    <ErrorType>error</ErrorType>
+    <ErrorCode>V1063</ErrorCode>
+    <Message>The modulo by 1 operation is meaningless. The result will always be zero.</Message>
+    <Line>497</Line>
+    <File>./src/nvim/eval/typval_encode.c.h</File>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <Level>1</Level>
+    <ErrorType>error</ErrorType>
+    <ErrorCode>V1063</ErrorCode>
+    <Message>The modulo by 1 operation is meaningless. The result will always be zero.</Message>
+    <Line>487</Line>
+    <File>./src/nvim/eval/typval_encode.c.h</File>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <Level>1</Level>
+    <ErrorType>error</ErrorType>
+    <ErrorCode>V576</ErrorCode>
+    <Message>Incorrect format. Consider checking the fourth actual argument of the 'vim_snprintf' function. The memsize type argument is expected.</Message>
+    <Line>487</Line>
+    <File>./src/nvim/eval/typval_encode.c.h</File>
+    <CWECode>CWE-628</CWECode>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <Level>1</Level>
+    <ErrorType>error</ErrorType>
+    <ErrorCode>V547</ErrorCode>
+    <Message>Expression is always true.</Message>
+    <Line>1781</Line>
+    <File>./src/nvim/eval/funcs.c</File>
+    <CWECode>CWE-571</CWECode>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <Level>1</Level>
+    <ErrorType>error</ErrorType>
+    <ErrorCode>V1063</ErrorCode>
+    <Message>The modulo by 1 operation is meaningless. The result will always be zero.</Message>
+    <Line>3682</Line>
+    <File>./src/nvim/eval/funcs.c</File>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <Level>2</Level>
+    <ErrorType>warning</ErrorType>
+    <ErrorCode>V560</ErrorCode>
+    <Message>A part of conditional expression is always true.</Message>
+    <Line>8069</Line>
+    <File>./src/nvim/eval/funcs.c</File>
+    <CWECode>CWE-571</CWECode>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <Level>1</Level>
+    <ErrorType>error</ErrorType>
+    <ErrorCode>V547</ErrorCode>
+    <Message>Expression is always true.</Message>
+    <Line>2660</Line>
+    <File>./src/nvim/eval/typval.c</File>
+    <CWECode>CWE-571</CWECode>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <Level>2</Level>
+    <ErrorType>warning</ErrorType>
+    <ErrorCode>V560</ErrorCode>
+    <Message>A part of conditional expression is always false: abort.</Message>
+    <Line>3390</Line>
+    <File>./src/nvim/eval/userfunc.c</File>
+    <CWECode>CWE-570</CWECode>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <Level>2</Level>
+    <ErrorType>warning</ErrorType>
+    <ErrorCode>V560</ErrorCode>
+    <Message>A part of conditional expression is always false: abort.</Message>
+    <Line>3420</Line>
+    <File>./src/nvim/eval/userfunc.c</File>
+    <CWECode>CWE-570</CWECode>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <Level>2</Level>
+    <ErrorType>warning</ErrorType>
+    <ErrorCode>V560</ErrorCode>
+    <Message>A part of conditional expression is always false: abort.</Message>
+    <Line>3428</Line>
+    <File>./src/nvim/eval/userfunc.c</File>
+    <CWECode>CWE-570</CWECode>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <Level>1</Level>
+    <ErrorType>error</ErrorType>
+    <ErrorCode>V1051</ErrorCode>
+    <Message>Consider checking for misprints. It's possible that the 'current_match.start.lnum' should be checked here.</Message>
+    <Line>3574</Line>
+    <File>./src/nvim/ex_cmds.c</File>
+    <Positions>
+      <Position lines="3574,3570">./src/nvim/ex_cmds.c</Position>
+    </Positions>
+    <CWECode>CWE-754</CWECode>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <Level>2</Level>
+    <ErrorType>warning</ErrorType>
+    <ErrorCode>V507</ErrorCode>
+    <Message>Pointer to local array 'sourcing_name_buf' is stored outside the scope of this array. Such a pointer will become invalid.</Message>
+    <Line>3116</Line>
+    <File>./src/nvim/ex_cmds2.c</File>
+    <CWECode>CWE-562</CWECode>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <Level>1</Level>
+    <ErrorType>error</ErrorType>
+    <ErrorCode>V1063</ErrorCode>
+    <Message>The modulo by 1 operation is meaningless. The result will always be zero.</Message>
+    <Line>4599</Line>
+    <File>./src/nvim/fileio.c</File>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <Level>1</Level>
+    <ErrorType>error</ErrorType>
+    <ErrorCode>V1063</ErrorCode>
+    <Message>The modulo by 1 operation is meaningless. The result will always be zero.</Message>
+    <Line>7537</Line>
+    <File>./src/nvim/fileio.c</File>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <Level>2</Level>
+    <ErrorType>warning</ErrorType>
+    <ErrorCode>V560</ErrorCode>
+    <Message>A part of conditional expression is always true: (gap)-&gt;ga_len &gt; 0.</Message>
+    <Line>2840</Line>
+    <File>./src/nvim/fold.c</File>
+    <CWECode>CWE-571</CWECode>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <Level>2</Level>
+    <ErrorType>warning</ErrorType>
+    <ErrorCode>V560</ErrorCode>
+    <Message>A part of conditional expression is always true: (gap)-&gt;ga_len &gt; 0.</Message>
+    <Line>2844</Line>
+    <File>./src/nvim/fold.c</File>
+    <CWECode>CWE-571</CWECode>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <Level>2</Level>
+    <ErrorType>warning</ErrorType>
+    <ErrorCode>V560</ErrorCode>
+    <Message>A part of conditional expression is always true: (gap)-&gt;ga_len &gt; 0.</Message>
+    <Line>2863</Line>
+    <File>./src/nvim/fold.c</File>
+    <CWECode>CWE-571</CWECode>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <Level>2</Level>
+    <ErrorType>warning</ErrorType>
+    <ErrorCode>V1051</ErrorCode>
+    <Message>Consider checking for misprints. It's possible that the 'cattrs.rgb_fg_color' should be checked here.</Message>
+    <Line>538</Line>
+    <File>./src/nvim/highlight.c</File>
+    <Positions>
+      <Position lines="538,536">./src/nvim/highlight.c</Position>
+    </Positions>
+    <CWECode>CWE-754</CWECode>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <Level>2</Level>
+    <ErrorType>warning</ErrorType>
+    <ErrorCode>V1051</ErrorCode>
+    <Message>Consider checking for misprints. It's possible that the 'cattrs.rgb_fg_color' should be checked here.</Message>
+    <Line>556</Line>
+    <File>./src/nvim/highlight.c</File>
+    <Positions>
+      <Position lines="556,554">./src/nvim/highlight.c</Position>
+    </Positions>
+    <CWECode>CWE-754</CWECode>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <Level>1</Level>
+    <ErrorType>error</ErrorType>
+    <ErrorCode>V1063</ErrorCode>
+    <Message>The modulo by 1 operation is meaningless. The result will always be zero.</Message>
+    <Line>1934</Line>
+    <File>./src/nvim/if_cscope.c</File>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <Level>2</Level>
+    <ErrorType>warning</ErrorType>
+    <ErrorCode>V1051</ErrorCode>
+    <Message>Consider checking for misprints. It's possible that the 'key' should be checked here.</Message>
+    <Line>671</Line>
+    <File>./src/nvim/keymap.c</File>
+    <Positions>
+      <Position lines="671,670">./src/nvim/keymap.c</Position>
+    </Positions>
+    <CWECode>CWE-754</CWECode>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <Level>2</Level>
+    <ErrorType>warning</ErrorType>
+    <ErrorCode>V560</ErrorCode>
+    <Message>A part of conditional expression is always true: arg-&gt;vval.v_dict-&gt;lua_table_ref != (- 2).</Message>
+    <Line>1435</Line>
+    <File>./src/nvim/lua/executor.c</File>
+    <CWECode>CWE-571</CWECode>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <Level>2</Level>
+    <ErrorType>warning</ErrorType>
+    <ErrorCode>V560</ErrorCode>
+    <Message>A part of conditional expression is always true: arg-&gt;vval.v_list-&gt;lua_table_ref != (- 2).</Message>
+    <Line>1438</Line>
+    <File>./src/nvim/lua/executor.c</File>
+    <CWECode>CWE-571</CWECode>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <Level>1</Level>
+    <ErrorType>error</ErrorType>
+    <ErrorCode>V512</ErrorCode>
+    <Message>A call of the 'memcpy' function will lead to underflow of the buffer 'z-&gt;key'.</Message>
+    <Line>167</Line>
+    <File>./src/nvim/marktree.c</File>
+    <CWECode>CWE-682</CWECode>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <Level>1</Level>
+    <ErrorType>error</ErrorType>
+    <ErrorCode>V1028</ErrorCode>
+    <Message>Possible overflow. Consider casting operands of the 'y-&gt;n + 1' operator to the 'size_t' type, not the result.</Message>
+    <Line>472</Line>
+    <File>./src/nvim/marktree.c</File>
+    <CWECode>CWE-190</CWECode>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <Level>1</Level>
+    <ErrorType>error</ErrorType>
+    <ErrorCode>V1028</ErrorCode>
+    <Message>Possible overflow. Consider casting operands of the 'y-&gt;n + 1' operator to the 'size_t' type, not the result.</Message>
+    <Line>494</Line>
+    <File>./src/nvim/marktree.c</File>
+    <CWECode>CWE-190</CWECode>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <Level>2</Level>
+    <ErrorType>warning</ErrorType>
+    <ErrorCode>V1048</ErrorCode>
+    <Message>The 'buf-&gt;b_ml.ml_stack_top' variable was assigned the same value.</Message>
+    <Line>1017</Line>
+    <File>./src/nvim/memline.c</File>
+    <CWECode>CWE-1164</CWECode>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <Level>2</Level>
+    <ErrorType>warning</ErrorType>
+    <ErrorCode>V1048</ErrorCode>
+    <Message>The 'buf-&gt;b_ml.ml_stack_size' variable was assigned the same value.</Message>
+    <Line>1019</Line>
+    <File>./src/nvim/memline.c</File>
+    <CWECode>CWE-1164</CWECode>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <Level>1</Level>
+    <ErrorType>error</ErrorType>
+    <ErrorCode>V781</ErrorCode>
+    <Message>The value of the 'col' index is checked after it was used. Perhaps there is a mistake in program logic.</Message>
+    <Line>3181</Line>
+    <File>./src/nvim/normal.c</File>
+    <Positions>
+      <Position lines="3181,3186">./src/nvim/normal.c</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <Level>1</Level>
+    <ErrorType>error</ErrorType>
+    <ErrorCode>V1063</ErrorCode>
+    <Message>The modulo by 1 operation is meaningless. The result will always be zero.</Message>
+    <Line>2745</Line>
+    <File>./src/nvim/ops.c</File>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <Level>1</Level>
+    <ErrorType>error</ErrorType>
+    <ErrorCode>V1063</ErrorCode>
+    <Message>The modulo by 1 operation is meaningless. The result will always be zero.</Message>
+    <Line>4985</Line>
+    <File>./src/nvim/ops.c</File>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <Level>1</Level>
+    <ErrorType>error</ErrorType>
+    <ErrorCode>V1063</ErrorCode>
+    <Message>The modulo by 1 operation is meaningless. The result will always be zero.</Message>
+    <Line>4987</Line>
+    <File>./src/nvim/ops.c</File>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <Level>1</Level>
+    <ErrorType>error</ErrorType>
+    <ErrorCode>V1063</ErrorCode>
+    <Message>The modulo by 1 operation is meaningless. The result will always be zero.</Message>
+    <Line>4989</Line>
+    <File>./src/nvim/ops.c</File>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <Level>1</Level>
+    <ErrorType>error</ErrorType>
+    <ErrorCode>V1063</ErrorCode>
+    <Message>The modulo by 1 operation is meaningless. The result will always be zero.</Message>
+    <Line>4991</Line>
+    <File>./src/nvim/ops.c</File>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <Level>1</Level>
+    <ErrorType>error</ErrorType>
+    <ErrorCode>V1063</ErrorCode>
+    <Message>The modulo by 1 operation is meaningless. The result will always be zero.</Message>
+    <Line>4228</Line>
+    <File>./src/nvim/option.c</File>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <Level>1</Level>
+    <ErrorType>error</ErrorType>
+    <ErrorCode>V1063</ErrorCode>
+    <Message>The modulo by 1 operation is meaningless. The result will always be zero.</Message>
+    <Line>4230</Line>
+    <File>./src/nvim/option.c</File>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <Level>1</Level>
+    <ErrorType>error</ErrorType>
+    <ErrorCode>V1063</ErrorCode>
+    <Message>The modulo by 1 operation is meaningless. The result will always be zero.</Message>
+    <Line>4232</Line>
+    <File>./src/nvim/option.c</File>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <Level>1</Level>
+    <ErrorType>error</ErrorType>
+    <ErrorCode>V1063</ErrorCode>
+    <Message>The modulo by 1 operation is meaningless. The result will always be zero.</Message>
+    <Line>4628</Line>
+    <File>./src/nvim/option.c</File>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <Level>1</Level>
+    <ErrorType>error</ErrorType>
+    <ErrorCode>V1063</ErrorCode>
+    <Message>The modulo by 1 operation is meaningless. The result will always be zero.</Message>
+    <Line>4629</Line>
+    <File>./src/nvim/option.c</File>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <Level>1</Level>
+    <ErrorType>error</ErrorType>
+    <ErrorCode>V1063</ErrorCode>
+    <Message>The modulo by 1 operation is meaningless. The result will always be zero.</Message>
+    <Line>4630</Line>
+    <File>./src/nvim/option.c</File>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <Level>1</Level>
+    <ErrorType>error</ErrorType>
+    <ErrorCode>V1063</ErrorCode>
+    <Message>The modulo by 1 operation is meaningless. The result will always be zero.</Message>
+    <Line>4665</Line>
+    <File>./src/nvim/option.c</File>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <Level>2</Level>
+    <ErrorType>warning</ErrorType>
+    <ErrorCode>V1044</ErrorCode>
+    <Message>Loop break conditions do not depend on the number of iterations.</Message>
+    <Line>436</Line>
+    <File>./src/nvim/os/input.c</File>
+    <CWECode>CWE-834</CWECode>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <Level>2</Level>
+    <ErrorType>warning</ErrorType>
+    <ErrorCode>V560</ErrorCode>
+    <Message>A part of conditional expression is always false: old_qf_curlist != qi-&gt;qf_curlist.</Message>
+    <Line>2754</Line>
+    <File>./src/nvim/quickfix.c</File>
+    <CWECode>CWE-570</CWECode>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <Level>2</Level>
+    <ErrorType>warning</ErrorType>
+    <ErrorCode>V560</ErrorCode>
+    <Message>A part of conditional expression is always false: old_changetick != qfl-&gt;qf_changedtick.</Message>
+    <Line>2755</Line>
+    <File>./src/nvim/quickfix.c</File>
+    <CWECode>CWE-570</CWECode>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <Level>2</Level>
+    <ErrorType>warning</ErrorType>
+    <ErrorCode>V560</ErrorCode>
+    <Message>A part of conditional expression is always false: old_changetick != qfl-&gt;qf_changedtick.</Message>
+    <Line>2858</Line>
+    <File>./src/nvim/quickfix.c</File>
+    <CWECode>CWE-570</CWECode>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <Level>1</Level>
+    <ErrorType>error</ErrorType>
+    <ErrorCode>V1051</ErrorCode>
+    <Message>Consider checking for misprints. It's possible that the 'pim-&gt;result' should be checked here.</Message>
+    <Line>6168</Line>
+    <File>./src/nvim/regexp_nfa.c</File>
+    <Positions>
+      <Position lines="6168,6165">./src/nvim/regexp_nfa.c</Position>
+    </Positions>
+    <CWECode>CWE-754</CWECode>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <Level>2</Level>
+    <ErrorType>warning</ErrorType>
+    <ErrorCode>V560</ErrorCode>
+    <Message>A part of conditional expression is always false: wp-&gt;w_wcol == old_wcol.</Message>
+    <Line>1713</Line>
+    <File>./src/nvim/screen.c</File>
+    <CWECode>CWE-570</CWECode>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <Level>2</Level>
+    <ErrorType>warning</ErrorType>
+    <ErrorCode>V560</ErrorCode>
+    <Message>A part of conditional expression is always true: old_topline == wp-&gt;w_topline.</Message>
+    <Line>1715</Line>
+    <File>./src/nvim/screen.c</File>
+    <CWECode>CWE-571</CWECode>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <Level>2</Level>
+    <ErrorType>warning</ErrorType>
+    <ErrorCode>V1051</ErrorCode>
+    <Message>Consider checking for misprints. It's possible that the 'vcol_sbr' should be checked here.</Message>
+    <Line>2834</Line>
+    <File>./src/nvim/screen.c</File>
+    <Positions>
+      <Position lines="2834,2831">./src/nvim/screen.c</Position>
+    </Positions>
+    <CWECode>CWE-754</CWECode>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <Level>1</Level>
+    <ErrorType>error</ErrorType>
+    <ErrorCode>V512</ErrorCode>
+    <Message>A call of the 'memset' function will lead to underflow of the buffer 'buf_fold'.</Message>
+    <Line>2887</Line>
+    <File>./src/nvim/screen.c</File>
+    <CWECode>CWE-682</CWECode>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <Level>2</Level>
+    <ErrorType>warning</ErrorType>
+    <ErrorCode>V560</ErrorCode>
+    <Message>A part of conditional expression is always true: eol_hl_off == 0.</Message>
+    <Line>3780</Line>
+    <File>./src/nvim/screen.c</File>
+    <CWECode>CWE-571</CWECode>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <Level>2</Level>
+    <ErrorType>warning</ErrorType>
+    <ErrorCode>V1051</ErrorCode>
+    <Message>Consider checking for misprints. It's possible that the 'redraw_next' should be checked here.</Message>
+    <Line>4531</Line>
+    <File>./src/nvim/screen.c</File>
+    <Positions>
+      <Position lines="4531,4527">./src/nvim/screen.c</Position>
+    </Positions>
+    <CWECode>CWE-754</CWECode>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <Level>2</Level>
+    <ErrorType>warning</ErrorType>
+    <ErrorCode>V512</ErrorCode>
+    <Message>A call of the 'strcpy' function will lead to overflow of the buffer '(char *)(p + len)'.</Message>
+    <Line>5001</Line>
+    <File>./src/nvim/screen.c</File>
+    <CWECode>CWE-119</CWECode>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <Level>1</Level>
+    <ErrorType>error</ErrorType>
+    <ErrorCode>V1063</ErrorCode>
+    <Message>The modulo by 1 operation is meaningless. The result will always be zero.</Message>
+    <Line>6789</Line>
+    <File>./src/nvim/screen.c</File>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <Level>1</Level>
+    <ErrorType>error</ErrorType>
+    <ErrorCode>V1042</ErrorCode>
+    <Message>This file is marked with copyleft license, which requires you to open the derived source code.</Message>
+    <Line>7</Line>
+    <File>./src/nvim/sha256.c</File>
+    <CWECode>CWE-1177</CWECode>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <Level>1</Level>
+    <ErrorType>error</ErrorType>
+    <ErrorCode>V1063</ErrorCode>
+    <Message>The modulo by 1 operation is meaningless. The result will always be zero.</Message>
+    <Line>4100</Line>
+    <File>./src/nvim/shada.c</File>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <Level>2</Level>
+    <ErrorType>warning</ErrorType>
+    <ErrorCode>V557</ErrorCode>
+    <Message>Array underrun is possible. The value of 'mi.mi_fwordlen - 1' index could reach -1.</Message>
+    <Line>449</Line>
+    <File>./src/nvim/spell.c</File>
+    <CWECode>CWE-787</CWECode>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <Level>1</Level>
+    <ErrorType>error</ErrorType>
+    <ErrorCode>V781</ErrorCode>
+    <Message>The value of the 'i' index is checked after it was used. Perhaps there is a mistake in program logic.</Message>
+    <Line>6040</Line>
+    <File>./src/nvim/spell.c</File>
+    <Positions>
+      <Position lines="6042,6046">./src/nvim/spell.c</Position>
+    </Positions>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <Level>2</Level>
+    <ErrorType>warning</ErrorType>
+    <ErrorCode>V1051</ErrorCode>
+    <Message>Consider checking for misprints. It's possible that the 'arg_end' should be checked here.</Message>
+    <Line>3363</Line>
+    <File>./src/nvim/syntax.c</File>
+    <Positions>
+      <Position lines="3363,3362">./src/nvim/syntax.c</Position>
+    </Positions>
+    <CWECode>CWE-754</CWECode>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <Level>2</Level>
+    <ErrorType>warning</ErrorType>
+    <ErrorCode>V1051</ErrorCode>
+    <Message>Consider checking for misprints. It's possible that the 'arg_end' should be checked here.</Message>
+    <Line>3548</Line>
+    <File>./src/nvim/syntax.c</File>
+    <Positions>
+      <Position lines="3548,3547">./src/nvim/syntax.c</Position>
+    </Positions>
+    <CWECode>CWE-754</CWECode>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <Level>2</Level>
+    <ErrorType>warning</ErrorType>
+    <ErrorCode>V560</ErrorCode>
+    <Message>A part of conditional expression is always true: rettv.vval.v_special == kSpecialVarNull.</Message>
+    <Line>1185</Line>
+    <File>./src/nvim/tag.c</File>
+    <CWECode>CWE-571</CWECode>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <Level>2</Level>
+    <ErrorType>warning</ErrorType>
+    <ErrorCode>V1044</ErrorCode>
+    <Message>Loop break conditions do not depend on the number of iterations.</Message>
+    <Line>540</Line>
+    <File>./src/nvim/tui/input.c</File>
+    <CWECode>CWE-834</CWECode>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <Level>2</Level>
+    <ErrorType>warning</ErrorType>
+    <ErrorCode>V1044</ErrorCode>
+    <Message>Loop break conditions do not depend on the number of iterations.</Message>
+    <Line>552</Line>
+    <File>./src/nvim/tui/input.c</File>
+    <CWECode>CWE-834</CWECode>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <Level>2</Level>
+    <ErrorType>warning</ErrorType>
+    <ErrorCode>V751</ErrorCode>
+    <Message>Parameter 'cols' is not used inside function body.</Message>
+    <Line>1125</Line>
+    <File>./src/nvim/tui/tui.c</File>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <Level>2</Level>
+    <ErrorType>warning</ErrorType>
+    <ErrorCode>V1051</ErrorCode>
+    <Message>Consider checking for misprints. It's possible that the 'data-&gt;unibi_ext.set_cursor_style' should be checked here.</Message>
+    <Line>1840</Line>
+    <File>./src/nvim/tui/tui.c</File>
+    <Positions>
+      <Position lines="1840,1838">./src/nvim/tui/tui.c</Position>
+    </Positions>
+    <CWECode>CWE-754</CWECode>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <Level>2</Level>
+    <ErrorType>warning</ErrorType>
+    <ErrorCode>V1051</ErrorCode>
+    <Message>Consider checking for misprints. It's possible that the 'data-&gt;unibi_ext.set_cursor_style' should be checked here.</Message>
+    <Line>1867</Line>
+    <File>./src/nvim/tui/tui.c</File>
+    <Positions>
+      <Position lines="1867,1850">./src/nvim/tui/tui.c</Position>
+    </Positions>
+    <CWECode>CWE-754</CWECode>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <Level>2</Level>
+    <ErrorType>warning</ErrorType>
+    <ErrorCode>V1051</ErrorCode>
+    <Message>Consider checking for misprints. It's possible that the 'data-&gt;unibi_ext.set_cursor_style' should be checked here.</Message>
+    <Line>1885</Line>
+    <File>./src/nvim/tui/tui.c</File>
+    <Positions>
+      <Position lines="1885,1876">./src/nvim/tui/tui.c</Position>
+    </Positions>
+    <CWECode>CWE-754</CWECode>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <Level>2</Level>
+    <ErrorType>warning</ErrorType>
+    <ErrorCode>V507</ErrorCode>
+    <Message>Pointer to local array 'args' is stored outside the scope of this array. Such a pointer will become invalid.</Message>
+    <Line>24</Line>
+    <File>./test/functional/fixtures/streams-test.c</File>
+    <CWECode>CWE-562</CWECode>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <Level>2</Level>
+    <ErrorType>warning</ErrorType>
+    <ErrorCode>V1044</ErrorCode>
+    <Message>Loop break conditions do not depend on the number of iterations.</Message>
+    <Line>10</Line>
+    <File>./test/unit/fixtures/rbuffer.c</File>
+    <CWECode>CWE-834</CWECode>
+  </PVS-Studio_Analysis_Log>
+  <PVS-Studio_Analysis_Log>
+    <Level>2</Level>
+    <ErrorType>warning</ErrorType>
+    <ErrorCode>V1044</ErrorCode>
+    <Message>Loop break conditions do not depend on the number of iterations.</Message>
+    <Line>18</Line>
+    <File>./test/unit/fixtures/rbuffer.c</File>
+    <CWECode>CWE-834</CWECode>
+  </PVS-Studio_Analysis_Log>
+</NewDataSet>

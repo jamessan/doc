@@ -1,0 +1,24 @@
+var searchData=
+[
+  ['data_5fblock',['data_block',['../structdata__block.html',1,'']]],
+  ['dbg_5fstuff',['dbg_stuff',['../structdbg__stuff.html',1,'']]],
+  ['debuggy',['debuggy',['../structdebuggy.html',1,'']]],
+  ['decomp_5ft',['decomp_T',['../structdecomp__T.html',1,'']]],
+  ['decoration',['Decoration',['../structDecoration.html',1,'']]],
+  ['decorprovider',['DecorProvider',['../structDecorProvider.html',1,'']]],
+  ['decorstate',['DecorState',['../structDecorState.html',1,'']]],
+  ['dg_5fheader_5fentry',['dg_header_entry',['../structdg__header__entry.html',1,'']]],
+  ['dict_5ft',['dict_T',['../structdict__T.html',1,'']]],
+  ['dict_5fwatcher',['dict_watcher',['../structdict__watcher.html',1,'']]],
+  ['dictionary',['Dictionary',['../structDictionary.html',1,'']]],
+  ['dictitem_5ft',['dictitem_T',['../structdictitem__T.html',1,'']]],
+  ['dictvar_5fs',['dictvar_S',['../structdictvar__S.html',1,'']]],
+  ['diffblock_5fs',['diffblock_S',['../structdiffblock__S.html',1,'']]],
+  ['diffin_5ft',['diffin_T',['../structdiffin__T.html',1,'']]],
+  ['diffio_5ft',['diffio_T',['../structdiffio__T.html',1,'']]],
+  ['diffout_5ft',['diffout_T',['../structdiffout__T.html',1,'']]],
+  ['digraph',['digraph',['../structdigraph.html',1,'']]],
+  ['dir_5fstack_5ft',['dir_stack_T',['../structdir__stack__T.html',1,'']]],
+  ['directory',['Directory',['../structDirectory.html',1,'']]],
+  ['dynamicbuffer',['DynamicBuffer',['../structDynamicBuffer.html',1,'']]]
+];

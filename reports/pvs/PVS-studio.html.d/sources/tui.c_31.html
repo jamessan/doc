@@ -1,0 +1,2214 @@
+
+<html>
+<head>
+
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+  <title>tui.c</title>
+
+  <link rel="stylesheet" href="../style.css"/>
+  <script src="../jquery-3.5.1.min.js"></script>
+</head>
+<body>
+
+<pre><code class = "cpp">
+<a name="ln1">// This is an open source non-commercial project. Dear PVS-Studio, please check</a>
+<a name="ln2">// it. PVS-Studio Static Code Analyzer for C, C++ and C#: http://www.viva64.com</a>
+<a name="ln3"> </a>
+<a name="ln4">// Terminal UI functions. Invoked (by ui_bridge.c) on the TUI thread.</a>
+<a name="ln5"> </a>
+<a name="ln6">#include &lt;assert.h&gt;</a>
+<a name="ln7">#include &lt;stdbool.h&gt;</a>
+<a name="ln8">#include &lt;stdio.h&gt;</a>
+<a name="ln9">#include &lt;limits.h&gt;</a>
+<a name="ln10"> </a>
+<a name="ln11">#include &lt;uv.h&gt;</a>
+<a name="ln12">#include &lt;unibilium.h&gt;</a>
+<a name="ln13">#if defined(HAVE_TERMIOS_H)</a>
+<a name="ln14"># include &lt;termios.h&gt;</a>
+<a name="ln15">#endif</a>
+<a name="ln16"> </a>
+<a name="ln17">#include &quot;nvim/lib/kvec.h&quot;</a>
+<a name="ln18"> </a>
+<a name="ln19">#include &quot;nvim/ascii.h&quot;</a>
+<a name="ln20">#include &quot;nvim/vim.h&quot;</a>
+<a name="ln21">#include &quot;nvim/log.h&quot;</a>
+<a name="ln22">#include &quot;nvim/ui.h&quot;</a>
+<a name="ln23">#include &quot;nvim/highlight.h&quot;</a>
+<a name="ln24">#include &quot;nvim/map.h&quot;</a>
+<a name="ln25">#include &quot;nvim/main.h&quot;</a>
+<a name="ln26">#include &quot;nvim/memory.h&quot;</a>
+<a name="ln27">#include &quot;nvim/option.h&quot;</a>
+<a name="ln28">#include &quot;nvim/api/vim.h&quot;</a>
+<a name="ln29">#include &quot;nvim/api/private/helpers.h&quot;</a>
+<a name="ln30">#include &quot;nvim/event/loop.h&quot;</a>
+<a name="ln31">#include &quot;nvim/event/signal.h&quot;</a>
+<a name="ln32">#include &quot;nvim/os/input.h&quot;</a>
+<a name="ln33">#include &quot;nvim/os/os.h&quot;</a>
+<a name="ln34">#include &quot;nvim/os/signal.h&quot;</a>
+<a name="ln35">#include &quot;nvim/os/tty.h&quot;</a>
+<a name="ln36">#ifdef WIN32</a>
+<a name="ln37"># include &quot;nvim/os/os_win_console.h&quot;</a>
+<a name="ln38">#endif</a>
+<a name="ln39">#include &quot;nvim/strings.h&quot;</a>
+<a name="ln40">#include &quot;nvim/syntax.h&quot;</a>
+<a name="ln41">#include &quot;nvim/ui_bridge.h&quot;</a>
+<a name="ln42">#include &quot;nvim/ugrid.h&quot;</a>
+<a name="ln43">#include &quot;nvim/tui/input.h&quot;</a>
+<a name="ln44">#include &quot;nvim/tui/tui.h&quot;</a>
+<a name="ln45">#include &quot;nvim/tui/terminfo.h&quot;</a>
+<a name="ln46">#include &quot;nvim/cursor_shape.h&quot;</a>
+<a name="ln47">#include &quot;nvim/macros.h&quot;</a>
+<a name="ln48"> </a>
+<a name="ln49">// Space reserved in two output buffers to make the cursor normal or invisible</a>
+<a name="ln50">// when flushing. No existing terminal will require 32 bytes to do that.</a>
+<a name="ln51">#define CNORM_COMMAND_MAX_SIZE 32</a>
+<a name="ln52">#define OUTBUF_SIZE 0xffff</a>
+<a name="ln53"> </a>
+<a name="ln54">#define TOO_MANY_EVENTS 1000000</a>
+<a name="ln55">#define STARTS_WITH(str, prefix) (strlen(str) &gt;= (sizeof(prefix) - 1) \</a>
+<a name="ln56">    &amp;&amp; 0 == memcmp((str), (prefix), sizeof(prefix) - 1))</a>
+<a name="ln57">#define TMUX_WRAP(is_tmux, seq) ((is_tmux) \</a>
+<a name="ln58">    ? &quot;\x1bPtmux;\x1b&quot; seq &quot;\x1b\\&quot; : seq)</a>
+<a name="ln59">#define LINUXSET0C &quot;\x1b[?0c&quot;</a>
+<a name="ln60">#define LINUXSET1C &quot;\x1b[?1c&quot;</a>
+<a name="ln61"> </a>
+<a name="ln62">#ifdef NVIM_UNIBI_HAS_VAR_FROM</a>
+<a name="ln63">#define UNIBI_SET_NUM_VAR(var, num) \</a>
+<a name="ln64">  do { \</a>
+<a name="ln65">    (var) = unibi_var_from_num((num)); \</a>
+<a name="ln66">  } while (0)</a>
+<a name="ln67">#else</a>
+<a name="ln68">#define UNIBI_SET_NUM_VAR(var, num) (var).i = (num);</a>
+<a name="ln69">#endif</a>
+<a name="ln70"> </a>
+<a name="ln71">typedef struct {</a>
+<a name="ln72">  int top, bot, left, right;</a>
+<a name="ln73">} Rect;</a>
+<a name="ln74"> </a>
+<a name="ln75">typedef struct {</a>
+<a name="ln76">  UIBridgeData *bridge;</a>
+<a name="ln77">  Loop *loop;</a>
+<a name="ln78">  unibi_var_t params[9];</a>
+<a name="ln79">  char buf[OUTBUF_SIZE];</a>
+<a name="ln80">  size_t bufpos;</a>
+<a name="ln81">  char norm[CNORM_COMMAND_MAX_SIZE];</a>
+<a name="ln82">  char invis[CNORM_COMMAND_MAX_SIZE];</a>
+<a name="ln83">  size_t normlen, invislen;</a>
+<a name="ln84">  TermInput input;</a>
+<a name="ln85">  uv_loop_t write_loop;</a>
+<a name="ln86">  unibi_term *ut;</a>
+<a name="ln87">  union {</a>
+<a name="ln88">    uv_tty_t tty;</a>
+<a name="ln89">    uv_pipe_t pipe;</a>
+<a name="ln90">  } output_handle;</a>
+<a name="ln91">  bool out_isatty;</a>
+<a name="ln92">  SignalWatcher winch_handle, cont_handle;</a>
+<a name="ln93">  bool cont_received;</a>
+<a name="ln94">  UGrid grid;</a>
+<a name="ln95">  kvec_t(Rect) invalid_regions;</a>
+<a name="ln96">  int row, col;</a>
+<a name="ln97">  int out_fd;</a>
+<a name="ln98">  bool scroll_region_is_full_screen;</a>
+<a name="ln99">  bool can_change_scroll_region;</a>
+<a name="ln100">  bool can_set_lr_margin;  // smglr</a>
+<a name="ln101">  bool can_set_left_right_margin;</a>
+<a name="ln102">  bool can_scroll;</a>
+<a name="ln103">  bool can_erase_chars;</a>
+<a name="ln104">  bool immediate_wrap_after_last_column;</a>
+<a name="ln105">  bool bce;</a>
+<a name="ln106">  bool mouse_enabled;</a>
+<a name="ln107">  bool busy, is_invisible, want_invisible;</a>
+<a name="ln108">  bool cork, overflow;</a>
+<a name="ln109">  bool cursor_color_changed;</a>
+<a name="ln110">  bool is_starting;</a>
+<a name="ln111">  FILE *screenshot;</a>
+<a name="ln112">  cursorentry_T cursor_shapes[SHAPE_IDX_COUNT];</a>
+<a name="ln113">  HlAttrs clear_attrs;</a>
+<a name="ln114">  kvec_t(HlAttrs) attrs;</a>
+<a name="ln115">  int print_attr_id;</a>
+<a name="ln116">  bool default_attr;</a>
+<a name="ln117">  bool can_clear_attr;</a>
+<a name="ln118">  ModeShape showing_mode;</a>
+<a name="ln119">  struct {</a>
+<a name="ln120">    int enable_mouse, disable_mouse;</a>
+<a name="ln121">    int enable_bracketed_paste, disable_bracketed_paste;</a>
+<a name="ln122">    int enable_lr_margin, disable_lr_margin;</a>
+<a name="ln123">    int enter_strikethrough_mode;</a>
+<a name="ln124">    int set_rgb_foreground, set_rgb_background;</a>
+<a name="ln125">    int set_cursor_color;</a>
+<a name="ln126">    int reset_cursor_color;</a>
+<a name="ln127">    int enable_focus_reporting, disable_focus_reporting;</a>
+<a name="ln128">    int resize_screen;</a>
+<a name="ln129">    int reset_scroll_region;</a>
+<a name="ln130">    int set_cursor_style, reset_cursor_style;</a>
+<a name="ln131">    int save_title, restore_title;</a>
+<a name="ln132">    int get_bg;</a>
+<a name="ln133">    int set_underline_style;</a>
+<a name="ln134">    int set_underline_color;</a>
+<a name="ln135">  } unibi_ext;</a>
+<a name="ln136">  char *space_buf;</a>
+<a name="ln137">} TUIData;</a>
+<a name="ln138"> </a>
+<a name="ln139">static bool volatile got_winch = false;</a>
+<a name="ln140">static bool did_user_set_dimensions = false;</a>
+<a name="ln141">static bool cursor_style_enabled = false;</a>
+<a name="ln142"> </a>
+<a name="ln143">#ifdef INCLUDE_GENERATED_DECLARATIONS</a>
+<a name="ln144"># include &quot;tui/tui.c.generated.h&quot;</a>
+<a name="ln145">#endif</a>
+<a name="ln146"> </a>
+<a name="ln147"> </a>
+<a name="ln148">UI *tui_start(void)</a>
+<a name="ln149">{</a>
+<a name="ln150">  UI *ui = xcalloc(1, sizeof(UI));  // Freed by ui_bridge_stop().</a>
+<a name="ln151">  ui-&gt;stop = tui_stop;</a>
+<a name="ln152">  ui-&gt;grid_resize = tui_grid_resize;</a>
+<a name="ln153">  ui-&gt;grid_clear = tui_grid_clear;</a>
+<a name="ln154">  ui-&gt;grid_cursor_goto = tui_grid_cursor_goto;</a>
+<a name="ln155">  ui-&gt;mode_info_set = tui_mode_info_set;</a>
+<a name="ln156">  ui-&gt;update_menu = tui_update_menu;</a>
+<a name="ln157">  ui-&gt;busy_start = tui_busy_start;</a>
+<a name="ln158">  ui-&gt;busy_stop = tui_busy_stop;</a>
+<a name="ln159">  ui-&gt;mouse_on = tui_mouse_on;</a>
+<a name="ln160">  ui-&gt;mouse_off = tui_mouse_off;</a>
+<a name="ln161">  ui-&gt;mode_change = tui_mode_change;</a>
+<a name="ln162">  ui-&gt;grid_scroll = tui_grid_scroll;</a>
+<a name="ln163">  ui-&gt;hl_attr_define = tui_hl_attr_define;</a>
+<a name="ln164">  ui-&gt;bell = tui_bell;</a>
+<a name="ln165">  ui-&gt;visual_bell = tui_visual_bell;</a>
+<a name="ln166">  ui-&gt;default_colors_set = tui_default_colors_set;</a>
+<a name="ln167">  ui-&gt;flush = tui_flush;</a>
+<a name="ln168">  ui-&gt;suspend = tui_suspend;</a>
+<a name="ln169">  ui-&gt;set_title = tui_set_title;</a>
+<a name="ln170">  ui-&gt;set_icon = tui_set_icon;</a>
+<a name="ln171">  ui-&gt;screenshot = tui_screenshot;</a>
+<a name="ln172">  ui-&gt;option_set= tui_option_set;</a>
+<a name="ln173">  ui-&gt;raw_line = tui_raw_line;</a>
+<a name="ln174"> </a>
+<a name="ln175">  memset(ui-&gt;ui_ext, 0, sizeof(ui-&gt;ui_ext));</a>
+<a name="ln176">  ui-&gt;ui_ext[kUILinegrid] = true;</a>
+<a name="ln177">  ui-&gt;ui_ext[kUITermColors] = true;</a>
+<a name="ln178"> </a>
+<a name="ln179">  return ui_bridge_attach(ui, tui_main, tui_scheduler);</a>
+<a name="ln180">}</a>
+<a name="ln181"> </a>
+<a name="ln182">static size_t unibi_pre_fmt_str(TUIData *data, unsigned int unibi_index,</a>
+<a name="ln183">                                char * buf, size_t len)</a>
+<a name="ln184">{</a>
+<a name="ln185">  const char *str = unibi_get_str(data-&gt;ut, unibi_index);</a>
+<a name="ln186">  if (!str) {</a>
+<a name="ln187">    return 0U;</a>
+<a name="ln188">  }</a>
+<a name="ln189">  return unibi_run(str, data-&gt;params, buf, len);</a>
+<a name="ln190">}</a>
+<a name="ln191"> </a>
+<a name="ln192">static void termname_set_event(void **argv)</a>
+<a name="ln193">{</a>
+<a name="ln194">  char *termname = argv[0];</a>
+<a name="ln195">  set_tty_option(&quot;term&quot;, termname);</a>
+<a name="ln196">  // Do not free termname, it is freed by set_tty_option.</a>
+<a name="ln197">}</a>
+<a name="ln198"> </a>
+<a name="ln199">static void terminfo_start(UI *ui)</a>
+<a name="ln200">{</a>
+<a name="ln201">  TUIData *data = ui-&gt;data;</a>
+<a name="ln202">  data-&gt;scroll_region_is_full_screen = true;</a>
+<a name="ln203">  data-&gt;bufpos = 0;</a>
+<a name="ln204">  data-&gt;default_attr = false;</a>
+<a name="ln205">  data-&gt;can_clear_attr = false;</a>
+<a name="ln206">  data-&gt;is_invisible = true;</a>
+<a name="ln207">  data-&gt;want_invisible = false;</a>
+<a name="ln208">  data-&gt;busy = false;</a>
+<a name="ln209">  data-&gt;cork = false;</a>
+<a name="ln210">  data-&gt;overflow = false;</a>
+<a name="ln211">  data-&gt;cursor_color_changed = false;</a>
+<a name="ln212">  data-&gt;showing_mode = SHAPE_IDX_N;</a>
+<a name="ln213">  data-&gt;unibi_ext.enable_mouse = -1;</a>
+<a name="ln214">  data-&gt;unibi_ext.disable_mouse = -1;</a>
+<a name="ln215">  data-&gt;unibi_ext.set_cursor_color = -1;</a>
+<a name="ln216">  data-&gt;unibi_ext.reset_cursor_color = -1;</a>
+<a name="ln217">  data-&gt;unibi_ext.enable_bracketed_paste = -1;</a>
+<a name="ln218">  data-&gt;unibi_ext.disable_bracketed_paste = -1;</a>
+<a name="ln219">  data-&gt;unibi_ext.enter_strikethrough_mode = -1;</a>
+<a name="ln220">  data-&gt;unibi_ext.enable_lr_margin = -1;</a>
+<a name="ln221">  data-&gt;unibi_ext.disable_lr_margin = -1;</a>
+<a name="ln222">  data-&gt;unibi_ext.enable_focus_reporting = -1;</a>
+<a name="ln223">  data-&gt;unibi_ext.disable_focus_reporting = -1;</a>
+<a name="ln224">  data-&gt;unibi_ext.resize_screen = -1;</a>
+<a name="ln225">  data-&gt;unibi_ext.reset_scroll_region = -1;</a>
+<a name="ln226">  data-&gt;unibi_ext.set_cursor_style = -1;</a>
+<a name="ln227">  data-&gt;unibi_ext.reset_cursor_style = -1;</a>
+<a name="ln228">  data-&gt;unibi_ext.get_bg = -1;</a>
+<a name="ln229">  data-&gt;unibi_ext.set_underline_color = -1;</a>
+<a name="ln230">  data-&gt;out_fd = STDOUT_FILENO;</a>
+<a name="ln231">  data-&gt;out_isatty = os_isatty(data-&gt;out_fd);</a>
+<a name="ln232"> </a>
+<a name="ln233">  const char *term = os_getenv(&quot;TERM&quot;);</a>
+<a name="ln234">#ifdef WIN32</a>
+<a name="ln235">  os_tty_guess_term(&amp;term, data-&gt;out_fd);</a>
+<a name="ln236">  os_setenv(&quot;TERM&quot;, term, 1);</a>
+<a name="ln237">  // Old os_getenv() pointer is invalid after os_setenv(), fetch it again.</a>
+<a name="ln238">  term = os_getenv(&quot;TERM&quot;);</a>
+<a name="ln239">#endif</a>
+<a name="ln240"> </a>
+<a name="ln241">  // Set up unibilium/terminfo.</a>
+<a name="ln242">  char *termname = NULL;</a>
+<a name="ln243">  if (term) {</a>
+<a name="ln244">    os_env_var_lock();</a>
+<a name="ln245">    data-&gt;ut = unibi_from_term(term);</a>
+<a name="ln246">    os_env_var_unlock();</a>
+<a name="ln247">    if (data-&gt;ut) {</a>
+<a name="ln248">      termname = xstrdup(term);</a>
+<a name="ln249">    }</a>
+<a name="ln250">  }</a>
+<a name="ln251">  if (!data-&gt;ut) {</a>
+<a name="ln252">    data-&gt;ut = terminfo_from_builtin(term, &amp;termname);</a>
+<a name="ln253">  }</a>
+<a name="ln254">  // Update 'term' option.</a>
+<a name="ln255">  loop_schedule_deferred(&amp;main_loop,</a>
+<a name="ln256">                         event_create(termname_set_event, 1, termname));</a>
+<a name="ln257"> </a>
+<a name="ln258">  // None of the following work over SSH; see :help TERM .</a>
+<a name="ln259">  const char *colorterm = os_getenv(&quot;COLORTERM&quot;);</a>
+<a name="ln260">  const char *termprg = os_getenv(&quot;TERM_PROGRAM&quot;);</a>
+<a name="ln261">  const char *vte_version_env = os_getenv(&quot;VTE_VERSION&quot;);</a>
+<a name="ln262">  long vtev = vte_version_env ? strtol(vte_version_env, NULL, 10) : 0;</a>
+<a name="ln263">  bool iterm_env = termprg &amp;&amp; strstr(termprg, &quot;iTerm.app&quot;);</a>
+<a name="ln264">  bool nsterm = (termprg &amp;&amp; strstr(termprg, &quot;Apple_Terminal&quot;))</a>
+<a name="ln265">    || terminfo_is_term_family(term, &quot;nsterm&quot;);</a>
+<a name="ln266">  bool konsole = terminfo_is_term_family(term, &quot;konsole&quot;)</a>
+<a name="ln267">    || os_getenv(&quot;KONSOLE_PROFILE_NAME&quot;)</a>
+<a name="ln268">    || os_getenv(&quot;KONSOLE_DBUS_SESSION&quot;);</a>
+<a name="ln269">  const char *konsolev_env = os_getenv(&quot;KONSOLE_VERSION&quot;);</a>
+<a name="ln270">  long konsolev = konsolev_env ? strtol(konsolev_env, NULL, 10)</a>
+<a name="ln271">                               : (konsole ? 1 : 0);</a>
+<a name="ln272"> </a>
+<a name="ln273">  patch_terminfo_bugs(data, term, colorterm, vtev, konsolev, iterm_env, nsterm);</a>
+<a name="ln274">  augment_terminfo(data, term, vtev, konsolev, iterm_env, nsterm);</a>
+<a name="ln275">  data-&gt;can_change_scroll_region =</a>
+<a name="ln276">    !!unibi_get_str(data-&gt;ut, unibi_change_scroll_region);</a>
+<a name="ln277">  data-&gt;can_set_lr_margin =</a>
+<a name="ln278">    !!unibi_get_str(data-&gt;ut, unibi_set_lr_margin);</a>
+<a name="ln279">  data-&gt;can_set_left_right_margin =</a>
+<a name="ln280">    !!unibi_get_str(data-&gt;ut, unibi_set_left_margin_parm)</a>
+<a name="ln281">    &amp;&amp; !!unibi_get_str(data-&gt;ut, unibi_set_right_margin_parm);</a>
+<a name="ln282">  data-&gt;can_scroll =</a>
+<a name="ln283">    !!unibi_get_str(data-&gt;ut, unibi_delete_line)</a>
+<a name="ln284">    &amp;&amp; !!unibi_get_str(data-&gt;ut, unibi_parm_delete_line)</a>
+<a name="ln285">    &amp;&amp; !!unibi_get_str(data-&gt;ut, unibi_insert_line)</a>
+<a name="ln286">    &amp;&amp; !!unibi_get_str(data-&gt;ut, unibi_parm_insert_line);</a>
+<a name="ln287">  data-&gt;can_erase_chars = !!unibi_get_str(data-&gt;ut, unibi_erase_chars);</a>
+<a name="ln288">  data-&gt;immediate_wrap_after_last_column =</a>
+<a name="ln289">    terminfo_is_term_family(term, &quot;conemu&quot;)</a>
+<a name="ln290">    || terminfo_is_term_family(term, &quot;cygwin&quot;)</a>
+<a name="ln291">    || terminfo_is_term_family(term, &quot;win32con&quot;)</a>
+<a name="ln292">    || terminfo_is_term_family(term, &quot;interix&quot;);</a>
+<a name="ln293">  data-&gt;bce = unibi_get_bool(data-&gt;ut, unibi_back_color_erase);</a>
+<a name="ln294">  data-&gt;normlen = unibi_pre_fmt_str(data, unibi_cursor_normal,</a>
+<a name="ln295">                                    data-&gt;norm, sizeof data-&gt;norm);</a>
+<a name="ln296">  data-&gt;invislen = unibi_pre_fmt_str(data, unibi_cursor_invisible,</a>
+<a name="ln297">                                     data-&gt;invis, sizeof data-&gt;invis);</a>
+<a name="ln298">  // Set 't_Co' from the result of unibilium &amp; fix_terminfo.</a>
+<a name="ln299">  t_colors = unibi_get_num(data-&gt;ut, unibi_max_colors);</a>
+<a name="ln300">  // Enter alternate screen, save title, and clear.</a>
+<a name="ln301">  // NOTE: Do this *before* changing terminal settings. #6433</a>
+<a name="ln302">  unibi_out(ui, unibi_enter_ca_mode);</a>
+<a name="ln303">  // Save title/icon to the &quot;stack&quot;. #4063</a>
+<a name="ln304">  unibi_out_ext(ui, data-&gt;unibi_ext.save_title);</a>
+<a name="ln305">  unibi_out(ui, unibi_keypad_xmit);</a>
+<a name="ln306">  unibi_out(ui, unibi_clear_screen);</a>
+<a name="ln307">  // Ask the terminal to send us the background color.</a>
+<a name="ln308">  data-&gt;input.waiting_for_bg_response = 5;</a>
+<a name="ln309">  unibi_out_ext(ui, data-&gt;unibi_ext.get_bg);</a>
+<a name="ln310">  // Enable bracketed paste</a>
+<a name="ln311">  unibi_out_ext(ui, data-&gt;unibi_ext.enable_bracketed_paste);</a>
+<a name="ln312"> </a>
+<a name="ln313">  uv_loop_init(&amp;data-&gt;write_loop);</a>
+<a name="ln314">  if (data-&gt;out_isatty) {</a>
+<a name="ln315">    uv_tty_init(&amp;data-&gt;write_loop, &amp;data-&gt;output_handle.tty, data-&gt;out_fd, 0);</a>
+<a name="ln316">#ifdef WIN32</a>
+<a name="ln317">    uv_tty_set_mode(&amp;data-&gt;output_handle.tty, UV_TTY_MODE_RAW);</a>
+<a name="ln318">#else</a>
+<a name="ln319">    int retry_count = 10;</a>
+<a name="ln320">    // A signal may cause uv_tty_set_mode() to fail (e.g., SIGCONT). Retry a</a>
+<a name="ln321">    // few times. #12322</a>
+<a name="ln322">    while (uv_tty_set_mode(&amp;data-&gt;output_handle.tty, UV_TTY_MODE_IO) == UV_EINTR</a>
+<a name="ln323">           &amp;&amp; retry_count &gt; 0) {</a>
+<a name="ln324">      retry_count--;</a>
+<a name="ln325">    }</a>
+<a name="ln326">#endif</a>
+<a name="ln327">  } else {</a>
+<a name="ln328">    uv_pipe_init(&amp;data-&gt;write_loop, &amp;data-&gt;output_handle.pipe, 0);</a>
+<a name="ln329">    uv_pipe_open(&amp;data-&gt;output_handle.pipe, data-&gt;out_fd);</a>
+<a name="ln330">  }</a>
+<a name="ln331">  flush_buf(ui);</a>
+<a name="ln332">}</a>
+<a name="ln333"> </a>
+<a name="ln334">static void terminfo_stop(UI *ui)</a>
+<a name="ln335">{</a>
+<a name="ln336">  TUIData *data = ui-&gt;data;</a>
+<a name="ln337">  // Destroy output stuff</a>
+<a name="ln338">  tui_mode_change(ui, (String)STRING_INIT, SHAPE_IDX_N);</a>
+<a name="ln339">  tui_mouse_off(ui);</a>
+<a name="ln340">  unibi_out(ui, unibi_exit_attribute_mode);</a>
+<a name="ln341">  // Reset cursor to normal before exiting alternate screen.</a>
+<a name="ln342">  unibi_out(ui, unibi_cursor_normal);</a>
+<a name="ln343">  unibi_out(ui, unibi_keypad_local);</a>
+<a name="ln344">  unibi_out(ui, unibi_exit_ca_mode);</a>
+<a name="ln345">  // Restore title/icon from the &quot;stack&quot;. #4063</a>
+<a name="ln346">  unibi_out_ext(ui, data-&gt;unibi_ext.restore_title);</a>
+<a name="ln347">  if (data-&gt;cursor_color_changed) {</a>
+<a name="ln348">    unibi_out_ext(ui, data-&gt;unibi_ext.reset_cursor_color);</a>
+<a name="ln349">  }</a>
+<a name="ln350">  // Disable bracketed paste</a>
+<a name="ln351">  unibi_out_ext(ui, data-&gt;unibi_ext.disable_bracketed_paste);</a>
+<a name="ln352">  // Disable focus reporting</a>
+<a name="ln353">  unibi_out_ext(ui, data-&gt;unibi_ext.disable_focus_reporting);</a>
+<a name="ln354">  flush_buf(ui);</a>
+<a name="ln355">  uv_tty_reset_mode();</a>
+<a name="ln356">  uv_close((uv_handle_t *)&amp;data-&gt;output_handle, NULL);</a>
+<a name="ln357">  uv_run(&amp;data-&gt;write_loop, UV_RUN_DEFAULT);</a>
+<a name="ln358">  if (uv_loop_close(&amp;data-&gt;write_loop)) {</a>
+<a name="ln359">    abort();</a>
+<a name="ln360">  }</a>
+<a name="ln361">  unibi_destroy(data-&gt;ut);</a>
+<a name="ln362">}</a>
+<a name="ln363"> </a>
+<a name="ln364">static void tui_terminal_start(UI *ui)</a>
+<a name="ln365">{</a>
+<a name="ln366">  TUIData *data = ui-&gt;data;</a>
+<a name="ln367">  data-&gt;print_attr_id = -1;</a>
+<a name="ln368">  ugrid_init(&amp;data-&gt;grid);</a>
+<a name="ln369">  terminfo_start(ui);</a>
+<a name="ln370">  tui_guess_size(ui);</a>
+<a name="ln371">  signal_watcher_start(&amp;data-&gt;winch_handle, sigwinch_cb, SIGWINCH);</a>
+<a name="ln372">  tinput_start(&amp;data-&gt;input);</a>
+<a name="ln373">}</a>
+<a name="ln374"> </a>
+<a name="ln375">static void tui_terminal_after_startup(UI *ui)</a>
+<a name="ln376">  FUNC_ATTR_NONNULL_ALL</a>
+<a name="ln377">{</a>
+<a name="ln378">  TUIData *data = ui-&gt;data;</a>
+<a name="ln379"> </a>
+<a name="ln380">  // Emit this after Nvim startup, not during.  This works around a tmux</a>
+<a name="ln381">  // 2.3 bug(?) which caused slow drawing during startup.  #7649</a>
+<a name="ln382">  unibi_out_ext(ui, data-&gt;unibi_ext.enable_focus_reporting);</a>
+<a name="ln383">  flush_buf(ui);</a>
+<a name="ln384">}</a>
+<a name="ln385"> </a>
+<a name="ln386">static void tui_terminal_stop(UI *ui)</a>
+<a name="ln387">{</a>
+<a name="ln388">  TUIData *data = ui-&gt;data;</a>
+<a name="ln389">  if (uv_is_closing(STRUCT_CAST(uv_handle_t, &amp;data-&gt;output_handle))) {</a>
+<a name="ln390">    // Race between SIGCONT (tui.c) and SIGHUP (os/signal.c)? #8075</a>
+<a name="ln391">    ELOG(&quot;TUI already stopped (race?)&quot;);</a>
+<a name="ln392">    ui-&gt;data = NULL;  // Flag UI as &quot;stopped&quot;.</a>
+<a name="ln393">    return;</a>
+<a name="ln394">  }</a>
+<a name="ln395">  tinput_stop(&amp;data-&gt;input);</a>
+<a name="ln396">  signal_watcher_stop(&amp;data-&gt;winch_handle);</a>
+<a name="ln397">  terminfo_stop(ui);</a>
+<a name="ln398">  ugrid_free(&amp;data-&gt;grid);</a>
+<a name="ln399">}</a>
+<a name="ln400"> </a>
+<a name="ln401">static void tui_stop(UI *ui)</a>
+<a name="ln402">{</a>
+<a name="ln403">  tui_terminal_stop(ui);</a>
+<a name="ln404">  ui-&gt;data = NULL;  // Flag UI as &quot;stopped&quot;.</a>
+<a name="ln405">}</a>
+<a name="ln406"> </a>
+<a name="ln407">/// Returns true if UI `ui` is stopped.</a>
+<a name="ln408">static bool tui_is_stopped(UI *ui)</a>
+<a name="ln409">{</a>
+<a name="ln410">  return ui-&gt;data == NULL;</a>
+<a name="ln411">}</a>
+<a name="ln412"> </a>
+<a name="ln413">/// Main function of the TUI thread.</a>
+<a name="ln414">static void tui_main(UIBridgeData *bridge, UI *ui)</a>
+<a name="ln415">{</a>
+<a name="ln416">  Loop tui_loop;</a>
+<a name="ln417">  loop_init(&amp;tui_loop, NULL);</a>
+<a name="ln418">  TUIData *data = xcalloc(1, sizeof(TUIData));</a>
+<a name="ln419">  ui-&gt;data = data;</a>
+<a name="ln420">  data-&gt;bridge = bridge;</a>
+<a name="ln421">  data-&gt;loop = &amp;tui_loop;</a>
+<a name="ln422">  data-&gt;is_starting = true;</a>
+<a name="ln423">  data-&gt;screenshot = NULL;</a>
+<a name="ln424">  kv_init(data-&gt;invalid_regions);</a>
+<a name="ln425">  signal_watcher_init(data-&gt;loop, &amp;data-&gt;winch_handle, ui);</a>
+<a name="ln426">  signal_watcher_init(data-&gt;loop, &amp;data-&gt;cont_handle, data);</a>
+<a name="ln427">#ifdef UNIX</a>
+<a name="ln428">  signal_watcher_start(&amp;data-&gt;cont_handle, sigcont_cb, SIGCONT);</a>
+<a name="ln429">#endif</a>
+<a name="ln430"> </a>
+<a name="ln431">  // TODO(bfredl): zero hl is empty, send this explicitly?</a>
+<a name="ln432">  kv_push(data-&gt;attrs, HLATTRS_INIT);</a>
+<a name="ln433"> </a>
+<a name="ln434">#if TERMKEY_VERSION_MAJOR &gt; 0 || TERMKEY_VERSION_MINOR &gt; 18</a>
+<a name="ln435">  data-&gt;input.tk_ti_hook_fn = tui_tk_ti_getstr;</a>
+<a name="ln436">#endif</a>
+<a name="ln437">  tinput_init(&amp;data-&gt;input, &amp;tui_loop);</a>
+<a name="ln438">  tui_terminal_start(ui);</a>
+<a name="ln439"> </a>
+<a name="ln440">  // Allow main thread to continue, we are ready to handle UI callbacks.</a>
+<a name="ln441">  CONTINUE(bridge);</a>
+<a name="ln442"> </a>
+<a name="ln443">  loop_schedule_deferred(&amp;main_loop,</a>
+<a name="ln444">                         event_create(show_termcap_event, 1, data-&gt;ut));</a>
+<a name="ln445"> </a>
+<a name="ln446">  // &quot;Active&quot; loop: first ~100 ms of startup.</a>
+<a name="ln447">  for (size_t ms = 0; ms &lt; 100 &amp;&amp; !tui_is_stopped(ui);) {</a>
+<a name="ln448">    ms += (loop_poll_events(&amp;tui_loop, 20) ? 20 : 1);</a>
+<a name="ln449">  }</a>
+<a name="ln450">  if (!tui_is_stopped(ui)) {</a>
+<a name="ln451">    tui_terminal_after_startup(ui);</a>
+<a name="ln452">  }</a>
+<a name="ln453">  // &quot;Passive&quot; (I/O-driven) loop: TUI thread &quot;main loop&quot;.</a>
+<a name="ln454">  while (!tui_is_stopped(ui)) {</a>
+<a name="ln455">    loop_poll_events(&amp;tui_loop, -1);  // tui_loop.events is never processed</a>
+<a name="ln456">  }</a>
+<a name="ln457"> </a>
+<a name="ln458">  ui_bridge_stopped(bridge);</a>
+<a name="ln459">  tinput_destroy(&amp;data-&gt;input);</a>
+<a name="ln460">  signal_watcher_stop(&amp;data-&gt;cont_handle);</a>
+<a name="ln461">  signal_watcher_close(&amp;data-&gt;cont_handle, NULL);</a>
+<a name="ln462">  signal_watcher_close(&amp;data-&gt;winch_handle, NULL);</a>
+<a name="ln463">  loop_close(&amp;tui_loop, false);</a>
+<a name="ln464">  kv_destroy(data-&gt;invalid_regions);</a>
+<a name="ln465">  kv_destroy(data-&gt;attrs);</a>
+<a name="ln466">  xfree(data-&gt;space_buf);</a>
+<a name="ln467">  xfree(data);</a>
+<a name="ln468">}</a>
+<a name="ln469"> </a>
+<a name="ln470">/// Handoff point between the main (ui_bridge) thread and the TUI thread.</a>
+<a name="ln471">static void tui_scheduler(Event event, void *d)</a>
+<a name="ln472">{</a>
+<a name="ln473">  UI *ui = d;</a>
+<a name="ln474">  TUIData *data = ui-&gt;data;</a>
+<a name="ln475">  loop_schedule_fast(data-&gt;loop, event);  // `tui_loop` local to tui_main().</a>
+<a name="ln476">}</a>
+<a name="ln477"> </a>
+<a name="ln478">#ifdef UNIX</a>
+<a name="ln479">static void sigcont_cb(SignalWatcher *watcher, int signum, void *data)</a>
+<a name="ln480">{</a>
+<a name="ln481">  ((TUIData *)data)-&gt;cont_received = true;</a>
+<a name="ln482">}</a>
+<a name="ln483">#endif</a>
+<a name="ln484"> </a>
+<a name="ln485">static void sigwinch_cb(SignalWatcher *watcher, int signum, void *data)</a>
+<a name="ln486">{</a>
+<a name="ln487">  got_winch = true;</a>
+<a name="ln488">  UI *ui = data;</a>
+<a name="ln489">  if (tui_is_stopped(ui)) {</a>
+<a name="ln490">    return;</a>
+<a name="ln491">  }</a>
+<a name="ln492"> </a>
+<a name="ln493">  tui_guess_size(ui);</a>
+<a name="ln494">  ui_schedule_refresh();</a>
+<a name="ln495">}</a>
+<a name="ln496"> </a>
+<a name="ln497">static bool attrs_differ(UI *ui, int id1, int id2, bool rgb)</a>
+<a name="ln498">{</a>
+<a name="ln499">  TUIData *data = ui-&gt;data;</a>
+<a name="ln500">  if (id1 == id2) {</a>
+<a name="ln501">    return false;</a>
+<a name="ln502">  } else if (id1 &lt; 0 || id2 &lt; 0) {</a>
+<a name="ln503">    return true;</a>
+<a name="ln504">  }</a>
+<a name="ln505">  HlAttrs a1 = kv_A(data-&gt;attrs, (size_t)id1);</a>
+<a name="ln506">  HlAttrs a2 = kv_A(data-&gt;attrs, (size_t)id2);</a>
+<a name="ln507"> </a>
+<a name="ln508">  if (rgb) {</a>
+<a name="ln509">    return a1.rgb_fg_color != a2.rgb_fg_color</a>
+<a name="ln510">      || a1.rgb_bg_color != a2.rgb_bg_color</a>
+<a name="ln511">      || a1.rgb_ae_attr != a2.rgb_ae_attr</a>
+<a name="ln512">      || a1.rgb_sp_color != a2.rgb_sp_color;</a>
+<a name="ln513">  } else {</a>
+<a name="ln514">    return a1.cterm_fg_color != a2.cterm_fg_color</a>
+<a name="ln515">      || a1.cterm_bg_color != a2.cterm_bg_color</a>
+<a name="ln516">      || a1.cterm_ae_attr != a2.cterm_ae_attr</a>
+<a name="ln517">      || (a1.cterm_ae_attr &amp; (HL_UNDERLINE|HL_UNDERCURL)</a>
+<a name="ln518">          &amp;&amp; a1.rgb_sp_color != a2.rgb_sp_color);</a>
+<a name="ln519">  }</a>
+<a name="ln520">}</a>
+<a name="ln521"> </a>
+<a name="ln522">static void update_attrs(UI *ui, int attr_id)</a>
+<a name="ln523">{</a>
+<a name="ln524">  TUIData *data = ui-&gt;data;</a>
+<a name="ln525"> </a>
+<a name="ln526">  if (!attrs_differ(ui, attr_id, data-&gt;print_attr_id, ui-&gt;rgb)) {</a>
+<a name="ln527">    data-&gt;print_attr_id = attr_id;</a>
+<a name="ln528">    return;</a>
+<a name="ln529">  }</a>
+<a name="ln530">  data-&gt;print_attr_id = attr_id;</a>
+<a name="ln531">  HlAttrs attrs = kv_A(data-&gt;attrs, (size_t)attr_id);</a>
+<a name="ln532">  int attr = ui-&gt;rgb ? attrs.rgb_ae_attr : attrs.cterm_ae_attr;</a>
+<a name="ln533"> </a>
+<a name="ln534">  bool bold = attr &amp; HL_BOLD;</a>
+<a name="ln535">  bool italic = attr &amp; HL_ITALIC;</a>
+<a name="ln536">  bool reverse = attr &amp; HL_INVERSE;</a>
+<a name="ln537">  bool standout = attr &amp; HL_STANDOUT;</a>
+<a name="ln538">  bool strikethrough = attr &amp; HL_STRIKETHROUGH;</a>
+<a name="ln539"> </a>
+<a name="ln540">  bool underline;</a>
+<a name="ln541">  bool undercurl;</a>
+<a name="ln542">  if (data-&gt;unibi_ext.set_underline_style != -1) {</a>
+<a name="ln543">    underline = attr &amp; HL_UNDERLINE;</a>
+<a name="ln544">    undercurl = attr &amp; HL_UNDERCURL;</a>
+<a name="ln545">  } else {</a>
+<a name="ln546">    underline = (attr &amp; HL_UNDERLINE) || (attr &amp; HL_UNDERCURL);</a>
+<a name="ln547">    undercurl = false;</a>
+<a name="ln548">  }</a>
+<a name="ln549"> </a>
+<a name="ln550">  if (unibi_get_str(data-&gt;ut, unibi_set_attributes)) {</a>
+<a name="ln551">    if (bold || reverse || underline || standout) {</a>
+<a name="ln552">      UNIBI_SET_NUM_VAR(data-&gt;params[0], standout);</a>
+<a name="ln553">      UNIBI_SET_NUM_VAR(data-&gt;params[1], underline);</a>
+<a name="ln554">      UNIBI_SET_NUM_VAR(data-&gt;params[2], reverse);</a>
+<a name="ln555">      UNIBI_SET_NUM_VAR(data-&gt;params[3], 0);   // blink</a>
+<a name="ln556">      UNIBI_SET_NUM_VAR(data-&gt;params[4], 0);   // dim</a>
+<a name="ln557">      UNIBI_SET_NUM_VAR(data-&gt;params[5], bold);</a>
+<a name="ln558">      UNIBI_SET_NUM_VAR(data-&gt;params[6], 0);   // blank</a>
+<a name="ln559">      UNIBI_SET_NUM_VAR(data-&gt;params[7], 0);   // protect</a>
+<a name="ln560">      UNIBI_SET_NUM_VAR(data-&gt;params[8], 0);   // alternate character set</a>
+<a name="ln561">      unibi_out(ui, unibi_set_attributes);</a>
+<a name="ln562">    } else if (!data-&gt;default_attr) {</a>
+<a name="ln563">      unibi_out(ui, unibi_exit_attribute_mode);</a>
+<a name="ln564">    }</a>
+<a name="ln565">  } else {</a>
+<a name="ln566">    if (!data-&gt;default_attr) {</a>
+<a name="ln567">      unibi_out(ui, unibi_exit_attribute_mode);</a>
+<a name="ln568">    }</a>
+<a name="ln569">    if (bold) {</a>
+<a name="ln570">      unibi_out(ui, unibi_enter_bold_mode);</a>
+<a name="ln571">    }</a>
+<a name="ln572">    if (underline) {</a>
+<a name="ln573">      unibi_out(ui, unibi_enter_underline_mode);</a>
+<a name="ln574">    }</a>
+<a name="ln575">    if (standout) {</a>
+<a name="ln576">      unibi_out(ui, unibi_enter_standout_mode);</a>
+<a name="ln577">    }</a>
+<a name="ln578">    if (reverse) {</a>
+<a name="ln579">      unibi_out(ui, unibi_enter_reverse_mode);</a>
+<a name="ln580">    }</a>
+<a name="ln581">  }</a>
+<a name="ln582">  if (italic) {</a>
+<a name="ln583">    unibi_out(ui, unibi_enter_italics_mode);</a>
+<a name="ln584">  }</a>
+<a name="ln585">  if (strikethrough &amp;&amp; data-&gt;unibi_ext.enter_strikethrough_mode != -1) {</a>
+<a name="ln586">    unibi_out_ext(ui, data-&gt;unibi_ext.enter_strikethrough_mode);</a>
+<a name="ln587">  }</a>
+<a name="ln588">  if (undercurl &amp;&amp; data-&gt;unibi_ext.set_underline_style != -1) {</a>
+<a name="ln589">    UNIBI_SET_NUM_VAR(data-&gt;params[0], 3);</a>
+<a name="ln590">    unibi_out_ext(ui, data-&gt;unibi_ext.set_underline_style);</a>
+<a name="ln591">  }</a>
+<a name="ln592">  if ((undercurl || underline) &amp;&amp; data-&gt;unibi_ext.set_underline_color != -1) {</a>
+<a name="ln593">    int color = attrs.rgb_sp_color;</a>
+<a name="ln594">    if (color != -1) {</a>
+<a name="ln595">        UNIBI_SET_NUM_VAR(data-&gt;params[0], (color &gt;&gt; 16) &amp; 0xff);  // red</a>
+<a name="ln596">        UNIBI_SET_NUM_VAR(data-&gt;params[1], (color &gt;&gt; 8) &amp; 0xff);   // green</a>
+<a name="ln597">        UNIBI_SET_NUM_VAR(data-&gt;params[2], color &amp; 0xff);          // blue</a>
+<a name="ln598">        unibi_out_ext(ui, data-&gt;unibi_ext.set_underline_color);</a>
+<a name="ln599">    }</a>
+<a name="ln600">  }</a>
+<a name="ln601"> </a>
+<a name="ln602">  int fg, bg;</a>
+<a name="ln603">  if (ui-&gt;rgb &amp;&amp; !(attr &amp; HL_FG_INDEXED)) {</a>
+<a name="ln604">    fg = ((attrs.rgb_fg_color != -1)</a>
+<a name="ln605">          ? attrs.rgb_fg_color : data-&gt;clear_attrs.rgb_fg_color);</a>
+<a name="ln606">    if (fg != -1) {</a>
+<a name="ln607">      UNIBI_SET_NUM_VAR(data-&gt;params[0], (fg &gt;&gt; 16) &amp; 0xff);  // red</a>
+<a name="ln608">      UNIBI_SET_NUM_VAR(data-&gt;params[1], (fg &gt;&gt; 8) &amp; 0xff);   // green</a>
+<a name="ln609">      UNIBI_SET_NUM_VAR(data-&gt;params[2], fg &amp; 0xff);          // blue</a>
+<a name="ln610">      unibi_out_ext(ui, data-&gt;unibi_ext.set_rgb_foreground);</a>
+<a name="ln611">    }</a>
+<a name="ln612">  } else {</a>
+<a name="ln613">    fg = (attrs.cterm_fg_color</a>
+<a name="ln614">          ? attrs.cterm_fg_color - 1 : (data-&gt;clear_attrs.cterm_fg_color - 1));</a>
+<a name="ln615">    if (fg != -1) {</a>
+<a name="ln616">      UNIBI_SET_NUM_VAR(data-&gt;params[0], fg);</a>
+<a name="ln617">      unibi_out(ui, unibi_set_a_foreground);</a>
+<a name="ln618">    }</a>
+<a name="ln619">  }</a>
+<a name="ln620"> </a>
+<a name="ln621">  if (ui-&gt;rgb &amp;&amp; !(attr &amp; HL_BG_INDEXED)) {</a>
+<a name="ln622">    bg = ((attrs.rgb_bg_color != -1)</a>
+<a name="ln623">          ? attrs.rgb_bg_color : data-&gt;clear_attrs.rgb_bg_color);</a>
+<a name="ln624">    if (bg != -1) {</a>
+<a name="ln625">      UNIBI_SET_NUM_VAR(data-&gt;params[0], (bg &gt;&gt; 16) &amp; 0xff);  // red</a>
+<a name="ln626">      UNIBI_SET_NUM_VAR(data-&gt;params[1], (bg &gt;&gt; 8) &amp; 0xff);   // green</a>
+<a name="ln627">      UNIBI_SET_NUM_VAR(data-&gt;params[2], bg &amp; 0xff);          // blue</a>
+<a name="ln628">      unibi_out_ext(ui, data-&gt;unibi_ext.set_rgb_background);</a>
+<a name="ln629">    }</a>
+<a name="ln630">  } else {</a>
+<a name="ln631">    bg = (attrs.cterm_bg_color</a>
+<a name="ln632">          ? attrs.cterm_bg_color - 1 : (data-&gt;clear_attrs.cterm_bg_color - 1));</a>
+<a name="ln633">    if (bg != -1) {</a>
+<a name="ln634">      UNIBI_SET_NUM_VAR(data-&gt;params[0], bg);</a>
+<a name="ln635">      unibi_out(ui, unibi_set_a_background);</a>
+<a name="ln636">    }</a>
+<a name="ln637">  }</a>
+<a name="ln638"> </a>
+<a name="ln639"> </a>
+<a name="ln640">  data-&gt;default_attr = fg == -1 &amp;&amp; bg == -1</a>
+<a name="ln641">    &amp;&amp; !bold &amp;&amp; !italic &amp;&amp; !underline &amp;&amp; !undercurl &amp;&amp; !reverse &amp;&amp; !standout</a>
+<a name="ln642">    &amp;&amp; !strikethrough;</a>
+<a name="ln643"> </a>
+<a name="ln644">  // Non-BCE terminals can't clear with non-default background color. Some BCE</a>
+<a name="ln645">  // terminals don't support attributes either, so don't rely on it. But assume</a>
+<a name="ln646">  // italic and bold has no effect if there is no text.</a>
+<a name="ln647">  data-&gt;can_clear_attr = !reverse &amp;&amp; !standout &amp;&amp; !underline &amp;&amp; !undercurl</a>
+<a name="ln648">    &amp;&amp; !strikethrough &amp;&amp; (data-&gt;bce || bg == -1);</a>
+<a name="ln649">}</a>
+<a name="ln650"> </a>
+<a name="ln651">static void final_column_wrap(UI *ui)</a>
+<a name="ln652">{</a>
+<a name="ln653">  TUIData *data = ui-&gt;data;</a>
+<a name="ln654">  UGrid *grid = &amp;data-&gt;grid;</a>
+<a name="ln655">  if (grid-&gt;row != -1 &amp;&amp; grid-&gt;col == ui-&gt;width) {</a>
+<a name="ln656">    grid-&gt;col = 0;</a>
+<a name="ln657">    if (grid-&gt;row &lt; MIN(ui-&gt;height, grid-&gt;height - 1)) {</a>
+<a name="ln658">      grid-&gt;row++;</a>
+<a name="ln659">    }</a>
+<a name="ln660">  }</a>
+<a name="ln661">}</a>
+<a name="ln662"> </a>
+<a name="ln663">/// It is undocumented, but in the majority of terminals and terminal emulators</a>
+<a name="ln664">/// printing at the right margin does not cause an automatic wrap until the</a>
+<a name="ln665">/// next character is printed, holding the cursor in place until then.</a>
+<a name="ln666">static void print_cell(UI *ui, UCell *ptr)</a>
+<a name="ln667">{</a>
+<a name="ln668">  TUIData *data = ui-&gt;data;</a>
+<a name="ln669">  UGrid *grid = &amp;data-&gt;grid;</a>
+<a name="ln670">  if (!data-&gt;immediate_wrap_after_last_column) {</a>
+<a name="ln671">    // Printing the next character finally advances the cursor.</a>
+<a name="ln672">    final_column_wrap(ui);</a>
+<a name="ln673">  }</a>
+<a name="ln674">  update_attrs(ui, ptr-&gt;attr);</a>
+<a name="ln675">  out(ui, ptr-&gt;data, strlen(ptr-&gt;data));</a>
+<a name="ln676">  grid-&gt;col++;</a>
+<a name="ln677">  if (data-&gt;immediate_wrap_after_last_column) {</a>
+<a name="ln678">    // Printing at the right margin immediately advances the cursor.</a>
+<a name="ln679">    final_column_wrap(ui);</a>
+<a name="ln680">  }</a>
+<a name="ln681">}</a>
+<a name="ln682"> </a>
+<a name="ln683">static bool cheap_to_print(UI *ui, int row, int col, int next)</a>
+<a name="ln684">{</a>
+<a name="ln685">  TUIData *data = ui-&gt;data;</a>
+<a name="ln686">  UGrid *grid = &amp;data-&gt;grid;</a>
+<a name="ln687">  UCell *cell = grid-&gt;cells[row] + col;</a>
+<a name="ln688">  while (next) {</a>
+<a name="ln689">    next--;</a>
+<a name="ln690">    if (attrs_differ(ui, cell-&gt;attr,</a>
+<a name="ln691">                     data-&gt;print_attr_id, ui-&gt;rgb)) {</a>
+<a name="ln692">      if (data-&gt;default_attr) {</a>
+<a name="ln693">        return false;</a>
+<a name="ln694">      }</a>
+<a name="ln695">    }</a>
+<a name="ln696">    if (strlen(cell-&gt;data) &gt; 1) {</a>
+<a name="ln697">      return false;</a>
+<a name="ln698">    }</a>
+<a name="ln699">    cell++;</a>
+<a name="ln700">  }</a>
+<a name="ln701">  return true;</a>
+<a name="ln702">}</a>
+<a name="ln703"> </a>
+<a name="ln704">/// This optimizes several cases where it is cheaper to do something other</a>
+<a name="ln705">/// than send a full cursor positioning control sequence.  However, there are</a>
+<a name="ln706">/// some further optimizations that may seem obvious but that will not work.</a>
+<a name="ln707">///</a>
+<a name="ln708">/// We cannot use VT (ASCII 0/11) for moving the cursor up, because VT means</a>
+<a name="ln709">/// move the cursor down on a DEC terminal.  Similarly, on a DEC terminal FF</a>
+<a name="ln710">/// (ASCII 0/12) means the same thing and does not mean home.  VT, CVT, and</a>
+<a name="ln711">/// TAB also stop at software-defined tabulation stops, not at a fixed set</a>
+<a name="ln712">/// of row/column positions.</a>
+<a name="ln713">static void cursor_goto(UI *ui, int row, int col)</a>
+<a name="ln714">{</a>
+<a name="ln715">  TUIData *data = ui-&gt;data;</a>
+<a name="ln716">  UGrid *grid = &amp;data-&gt;grid;</a>
+<a name="ln717">  if (row == grid-&gt;row &amp;&amp; col == grid-&gt;col) {</a>
+<a name="ln718">    return;</a>
+<a name="ln719">  }</a>
+<a name="ln720">  if (0 == row &amp;&amp; 0 == col) {</a>
+<a name="ln721">    unibi_out(ui, unibi_cursor_home);</a>
+<a name="ln722">    ugrid_goto(grid, row, col);</a>
+<a name="ln723">    return;</a>
+<a name="ln724">  }</a>
+<a name="ln725">  if (grid-&gt;row == -1) {</a>
+<a name="ln726">    goto safe_move;</a>
+<a name="ln727">  }</a>
+<a name="ln728">  if (0 == col ? col != grid-&gt;col :</a>
+<a name="ln729">      row != grid-&gt;row ? false :</a>
+<a name="ln730">      1 == col ? 2 &lt; grid-&gt;col &amp;&amp; cheap_to_print(ui, grid-&gt;row, 0, col) :</a>
+<a name="ln731">      2 == col ? 5 &lt; grid-&gt;col &amp;&amp; cheap_to_print(ui, grid-&gt;row, 0, col) :</a>
+<a name="ln732">      false) {</a>
+<a name="ln733">    // Motion to left margin from anywhere else, or CR + printing chars is</a>
+<a name="ln734">    // even less expensive than using BSes or CUB.</a>
+<a name="ln735">    unibi_out(ui, unibi_carriage_return);</a>
+<a name="ln736">    ugrid_goto(grid, grid-&gt;row, 0);</a>
+<a name="ln737">  }</a>
+<a name="ln738">  if (row == grid-&gt;row) {</a>
+<a name="ln739">    if (col &lt; grid-&gt;col</a>
+<a name="ln740">        // Deferred right margin wrap terminals have inconsistent ideas about</a>
+<a name="ln741">        // where the cursor actually is during a deferred wrap.  Relative</a>
+<a name="ln742">        // motion calculations have OBOEs that cannot be compensated for,</a>
+<a name="ln743">        // because two terminals that claim to be the same will implement</a>
+<a name="ln744">        // different cursor positioning rules.</a>
+<a name="ln745">        &amp;&amp; (data-&gt;immediate_wrap_after_last_column || grid-&gt;col &lt; ui-&gt;width)) {</a>
+<a name="ln746">      int n = grid-&gt;col - col;</a>
+<a name="ln747">      if (n &lt;= 4) {  // This might be just BS, so it is considered really cheap.</a>
+<a name="ln748">        while (n--) {</a>
+<a name="ln749">          unibi_out(ui, unibi_cursor_left);</a>
+<a name="ln750">        }</a>
+<a name="ln751">      } else {</a>
+<a name="ln752">        UNIBI_SET_NUM_VAR(data-&gt;params[0], n);</a>
+<a name="ln753">        unibi_out(ui, unibi_parm_left_cursor);</a>
+<a name="ln754">      }</a>
+<a name="ln755">      ugrid_goto(grid, row, col);</a>
+<a name="ln756">      return;</a>
+<a name="ln757">    } else if (col &gt; grid-&gt;col) {</a>
+<a name="ln758">      int n = col - grid-&gt;col;</a>
+<a name="ln759">      if (n &lt;= 2) {</a>
+<a name="ln760">        while (n--) {</a>
+<a name="ln761">          unibi_out(ui, unibi_cursor_right);</a>
+<a name="ln762">        }</a>
+<a name="ln763">      } else {</a>
+<a name="ln764">        UNIBI_SET_NUM_VAR(data-&gt;params[0], n);</a>
+<a name="ln765">        unibi_out(ui, unibi_parm_right_cursor);</a>
+<a name="ln766">      }</a>
+<a name="ln767">      ugrid_goto(grid, row, col);</a>
+<a name="ln768">      return;</a>
+<a name="ln769">    }</a>
+<a name="ln770">  }</a>
+<a name="ln771">  if (col == grid-&gt;col) {</a>
+<a name="ln772">    if (row &gt; grid-&gt;row) {</a>
+<a name="ln773">      int n = row - grid-&gt;row;</a>
+<a name="ln774">      if (n &lt;= 4) {  // This might be just LF, so it is considered really cheap.</a>
+<a name="ln775">        while (n--) {</a>
+<a name="ln776">          unibi_out(ui, unibi_cursor_down);</a>
+<a name="ln777">        }</a>
+<a name="ln778">      } else {</a>
+<a name="ln779">        UNIBI_SET_NUM_VAR(data-&gt;params[0], n);</a>
+<a name="ln780">        unibi_out(ui, unibi_parm_down_cursor);</a>
+<a name="ln781">      }</a>
+<a name="ln782">      ugrid_goto(grid, row, col);</a>
+<a name="ln783">      return;</a>
+<a name="ln784">    } else if (row &lt; grid-&gt;row) {</a>
+<a name="ln785">      int n = grid-&gt;row - row;</a>
+<a name="ln786">      if (n &lt;= 2) {</a>
+<a name="ln787">        while (n--) {</a>
+<a name="ln788">          unibi_out(ui, unibi_cursor_up);</a>
+<a name="ln789">        }</a>
+<a name="ln790">      } else {</a>
+<a name="ln791">        UNIBI_SET_NUM_VAR(data-&gt;params[0], n);</a>
+<a name="ln792">        unibi_out(ui, unibi_parm_up_cursor);</a>
+<a name="ln793">      }</a>
+<a name="ln794">      ugrid_goto(grid, row, col);</a>
+<a name="ln795">      return;</a>
+<a name="ln796">    }</a>
+<a name="ln797">  }</a>
+<a name="ln798"> </a>
+<a name="ln799">safe_move:</a>
+<a name="ln800">  unibi_goto(ui, row, col);</a>
+<a name="ln801">  ugrid_goto(grid, row, col);</a>
+<a name="ln802">}</a>
+<a name="ln803"> </a>
+<a name="ln804">static void clear_region(UI *ui, int top, int bot, int left, int right,</a>
+<a name="ln805">                         int attr_id)</a>
+<a name="ln806">{</a>
+<a name="ln807">  TUIData *data = ui-&gt;data;</a>
+<a name="ln808">  UGrid *grid = &amp;data-&gt;grid;</a>
+<a name="ln809"> </a>
+<a name="ln810">  update_attrs(ui, attr_id);</a>
+<a name="ln811"> </a>
+<a name="ln812">  // Background is set to the default color and the right edge matches the</a>
+<a name="ln813">  // screen end, try to use terminal codes for clearing the requested area.</a>
+<a name="ln814">  if (data-&gt;can_clear_attr</a>
+<a name="ln815">      &amp;&amp; left == 0 &amp;&amp; right == ui-&gt;width &amp;&amp; bot == ui-&gt;height) {</a>
+<a name="ln816">    if (top == 0) {</a>
+<a name="ln817">      unibi_out(ui, unibi_clear_screen);</a>
+<a name="ln818">      ugrid_goto(&amp;data-&gt;grid, top, left);</a>
+<a name="ln819">    } else {</a>
+<a name="ln820">      cursor_goto(ui, top, 0);</a>
+<a name="ln821">      unibi_out(ui, unibi_clr_eos);</a>
+<a name="ln822">    }</a>
+<a name="ln823">  } else {</a>
+<a name="ln824">    int width = right-left;</a>
+<a name="ln825"> </a>
+<a name="ln826">    // iterate through each line and clear</a>
+<a name="ln827">    for (int row = top; row &lt; bot; row++) {</a>
+<a name="ln828">      cursor_goto(ui, row, left);</a>
+<a name="ln829">      if (data-&gt;can_clear_attr &amp;&amp; right == ui-&gt;width) {</a>
+<a name="ln830">        unibi_out(ui, unibi_clr_eol);</a>
+<a name="ln831">      } else if (data-&gt;can_erase_chars &amp;&amp; data-&gt;can_clear_attr &amp;&amp; width &gt;= 5) {</a>
+<a name="ln832">        UNIBI_SET_NUM_VAR(data-&gt;params[0], width);</a>
+<a name="ln833">        unibi_out(ui, unibi_erase_chars);</a>
+<a name="ln834">      } else {</a>
+<a name="ln835">        out(ui, data-&gt;space_buf, (size_t)width);</a>
+<a name="ln836">        grid-&gt;col += width;</a>
+<a name="ln837">        if (data-&gt;immediate_wrap_after_last_column) {</a>
+<a name="ln838">          // Printing at the right margin immediately advances the cursor.</a>
+<a name="ln839">          final_column_wrap(ui);</a>
+<a name="ln840">        }</a>
+<a name="ln841">      }</a>
+<a name="ln842">    }</a>
+<a name="ln843">  }</a>
+<a name="ln844">}</a>
+<a name="ln845"> </a>
+<a name="ln846">static void set_scroll_region(UI *ui, int top, int bot, int left, int right)</a>
+<a name="ln847">{</a>
+<a name="ln848">  TUIData *data = ui-&gt;data;</a>
+<a name="ln849">  UGrid *grid = &amp;data-&gt;grid;</a>
+<a name="ln850"> </a>
+<a name="ln851">  UNIBI_SET_NUM_VAR(data-&gt;params[0], top);</a>
+<a name="ln852">  UNIBI_SET_NUM_VAR(data-&gt;params[1], bot);</a>
+<a name="ln853">  unibi_out(ui, unibi_change_scroll_region);</a>
+<a name="ln854">  if (left != 0 || right != ui-&gt;width - 1) {</a>
+<a name="ln855">    unibi_out_ext(ui, data-&gt;unibi_ext.enable_lr_margin);</a>
+<a name="ln856">    if (data-&gt;can_set_lr_margin) {</a>
+<a name="ln857">      UNIBI_SET_NUM_VAR(data-&gt;params[0], left);</a>
+<a name="ln858">      UNIBI_SET_NUM_VAR(data-&gt;params[1], right);</a>
+<a name="ln859">      unibi_out(ui, unibi_set_lr_margin);</a>
+<a name="ln860">    } else {</a>
+<a name="ln861">      UNIBI_SET_NUM_VAR(data-&gt;params[0], left);</a>
+<a name="ln862">      unibi_out(ui, unibi_set_left_margin_parm);</a>
+<a name="ln863">      UNIBI_SET_NUM_VAR(data-&gt;params[0], right);</a>
+<a name="ln864">      unibi_out(ui, unibi_set_right_margin_parm);</a>
+<a name="ln865">    }</a>
+<a name="ln866">  }</a>
+<a name="ln867">  grid-&gt;row = -1;</a>
+<a name="ln868">}</a>
+<a name="ln869"> </a>
+<a name="ln870">static void reset_scroll_region(UI *ui, bool fullwidth)</a>
+<a name="ln871">{</a>
+<a name="ln872">  TUIData *data = ui-&gt;data;</a>
+<a name="ln873">  UGrid *grid = &amp;data-&gt;grid;</a>
+<a name="ln874"> </a>
+<a name="ln875">  if (0 &lt;= data-&gt;unibi_ext.reset_scroll_region) {</a>
+<a name="ln876">    unibi_out_ext(ui, data-&gt;unibi_ext.reset_scroll_region);</a>
+<a name="ln877">  } else {</a>
+<a name="ln878">    UNIBI_SET_NUM_VAR(data-&gt;params[0], 0);</a>
+<a name="ln879">    UNIBI_SET_NUM_VAR(data-&gt;params[1], ui-&gt;height - 1);</a>
+<a name="ln880">    unibi_out(ui, unibi_change_scroll_region);</a>
+<a name="ln881">  }</a>
+<a name="ln882">  if (!fullwidth) {</a>
+<a name="ln883">    if (data-&gt;can_set_lr_margin) {</a>
+<a name="ln884">      UNIBI_SET_NUM_VAR(data-&gt;params[0], 0);</a>
+<a name="ln885">      UNIBI_SET_NUM_VAR(data-&gt;params[1], ui-&gt;width - 1);</a>
+<a name="ln886">      unibi_out(ui, unibi_set_lr_margin);</a>
+<a name="ln887">    } else {</a>
+<a name="ln888">      UNIBI_SET_NUM_VAR(data-&gt;params[0], 0);</a>
+<a name="ln889">      unibi_out(ui, unibi_set_left_margin_parm);</a>
+<a name="ln890">      UNIBI_SET_NUM_VAR(data-&gt;params[0], ui-&gt;width - 1);</a>
+<a name="ln891">      unibi_out(ui, unibi_set_right_margin_parm);</a>
+<a name="ln892">    }</a>
+<a name="ln893">    unibi_out_ext(ui, data-&gt;unibi_ext.disable_lr_margin);</a>
+<a name="ln894">  }</a>
+<a name="ln895">  grid-&gt;row = -1;</a>
+<a name="ln896">}</a>
+<a name="ln897"> </a>
+<a name="ln898">static void tui_grid_resize(UI *ui, Integer g, Integer width, Integer height)</a>
+<a name="ln899">{</a>
+<a name="ln900">  TUIData *data = ui-&gt;data;</a>
+<a name="ln901">  UGrid *grid = &amp;data-&gt;grid;</a>
+<a name="ln902">  ugrid_resize(grid, (int)width, (int)height);</a>
+<a name="ln903"> </a>
+<a name="ln904">  xfree(data-&gt;space_buf);</a>
+<a name="ln905">  data-&gt;space_buf = xmalloc((size_t)width * sizeof(*data-&gt;space_buf));</a>
+<a name="ln906">  memset(data-&gt;space_buf, ' ', (size_t)width);</a>
+<a name="ln907"> </a>
+<a name="ln908">  // resize might not always be followed by a clear before flush</a>
+<a name="ln909">  // so clip the invalid region</a>
+<a name="ln910">  for (size_t i = 0; i &lt; kv_size(data-&gt;invalid_regions); i++) {</a>
+<a name="ln911">    Rect *r = &amp;kv_A(data-&gt;invalid_regions, i);</a>
+<a name="ln912">    r-&gt;bot = MIN(r-&gt;bot, grid-&gt;height);</a>
+<a name="ln913">    r-&gt;right = MIN(r-&gt;right, grid-&gt;width);</a>
+<a name="ln914">  }</a>
+<a name="ln915"> </a>
+<a name="ln916">  if (!got_winch &amp;&amp; (!data-&gt;is_starting || did_user_set_dimensions)) {</a>
+<a name="ln917">    // Resize the _host_ terminal.</a>
+<a name="ln918">    UNIBI_SET_NUM_VAR(data-&gt;params[0], (int)height);</a>
+<a name="ln919">    UNIBI_SET_NUM_VAR(data-&gt;params[1], (int)width);</a>
+<a name="ln920">    unibi_out_ext(ui, data-&gt;unibi_ext.resize_screen);</a>
+<a name="ln921">    // DECSLPP does not reset the scroll region.</a>
+<a name="ln922">    if (data-&gt;scroll_region_is_full_screen) {</a>
+<a name="ln923">      reset_scroll_region(ui, ui-&gt;width == grid-&gt;width);</a>
+<a name="ln924">    }</a>
+<a name="ln925">  } else {  // Already handled the SIGWINCH signal; avoid double-resize.</a>
+<a name="ln926">    got_winch = false;</a>
+<a name="ln927">    grid-&gt;row = -1;</a>
+<a name="ln928">  }</a>
+<a name="ln929">}</a>
+<a name="ln930"> </a>
+<a name="ln931">static void tui_grid_clear(UI *ui, Integer g)</a>
+<a name="ln932">{</a>
+<a name="ln933">  TUIData *data = ui-&gt;data;</a>
+<a name="ln934">  UGrid *grid = &amp;data-&gt;grid;</a>
+<a name="ln935">  ugrid_clear(grid);</a>
+<a name="ln936">  kv_size(data-&gt;invalid_regions) = 0;</a>
+<a name="ln937">  clear_region(ui, 0, grid-&gt;height, 0, grid-&gt;width, 0);</a>
+<a name="ln938">}</a>
+<a name="ln939"> </a>
+<a name="ln940">static void tui_grid_cursor_goto(UI *ui, Integer grid, Integer row, Integer col)</a>
+<a name="ln941">{</a>
+<a name="ln942">  TUIData *data = ui-&gt;data;</a>
+<a name="ln943"> </a>
+<a name="ln944">  // cursor position is validated in tui_flush</a>
+<a name="ln945">  data-&gt;row = (int)row;</a>
+<a name="ln946">  data-&gt;col = (int)col;</a>
+<a name="ln947">}</a>
+<a name="ln948"> </a>
+<a name="ln949">CursorShape tui_cursor_decode_shape(const char *shape_str)</a>
+<a name="ln950">{</a>
+<a name="ln951">  CursorShape shape;</a>
+<a name="ln952">  if (strequal(shape_str, &quot;block&quot;)) {</a>
+<a name="ln953">    shape = SHAPE_BLOCK;</a>
+<a name="ln954">  } else if (strequal(shape_str, &quot;vertical&quot;)) {</a>
+<a name="ln955">    shape = SHAPE_VER;</a>
+<a name="ln956">  } else if (strequal(shape_str, &quot;horizontal&quot;)) {</a>
+<a name="ln957">    shape = SHAPE_HOR;</a>
+<a name="ln958">  } else {</a>
+<a name="ln959">    WLOG(&quot;Unknown shape value '%s'&quot;, shape_str);</a>
+<a name="ln960">    shape = SHAPE_BLOCK;</a>
+<a name="ln961">  }</a>
+<a name="ln962">  return shape;</a>
+<a name="ln963">}</a>
+<a name="ln964"> </a>
+<a name="ln965">static cursorentry_T decode_cursor_entry(Dictionary args)</a>
+<a name="ln966">{</a>
+<a name="ln967">  cursorentry_T r = shape_table[0];</a>
+<a name="ln968"> </a>
+<a name="ln969">  for (size_t i = 0; i &lt; args.size; i++) {</a>
+<a name="ln970">    char *key = args.items[i].key.data;</a>
+<a name="ln971">    Object value = args.items[i].value;</a>
+<a name="ln972"> </a>
+<a name="ln973">    if (strequal(key, &quot;cursor_shape&quot;)) {</a>
+<a name="ln974">      r.shape = tui_cursor_decode_shape(args.items[i].value.data.string.data);</a>
+<a name="ln975">    } else if (strequal(key, &quot;blinkon&quot;)) {</a>
+<a name="ln976">      r.blinkon = (int)value.data.integer;</a>
+<a name="ln977">    } else if (strequal(key, &quot;blinkoff&quot;)) {</a>
+<a name="ln978">      r.blinkoff = (int)value.data.integer;</a>
+<a name="ln979">    } else if (strequal(key, &quot;attr_id&quot;)) {</a>
+<a name="ln980">      r.id = (int)value.data.integer;</a>
+<a name="ln981">    }</a>
+<a name="ln982">  }</a>
+<a name="ln983">  return r;</a>
+<a name="ln984">}</a>
+<a name="ln985"> </a>
+<a name="ln986">static void tui_mode_info_set(UI *ui, bool guicursor_enabled, Array args)</a>
+<a name="ln987">{</a>
+<a name="ln988">  cursor_style_enabled = guicursor_enabled;</a>
+<a name="ln989">  if (!guicursor_enabled) {</a>
+<a name="ln990">    return;  // Do not send cursor style control codes.</a>
+<a name="ln991">  }</a>
+<a name="ln992">  TUIData *data = ui-&gt;data;</a>
+<a name="ln993"> </a>
+<a name="ln994">  assert(args.size);</a>
+<a name="ln995"> </a>
+<a name="ln996">  // cursor style entries as defined by `shape_table`.</a>
+<a name="ln997">  for (size_t i = 0; i &lt; args.size; i++) {</a>
+<a name="ln998">    assert(args.items[i].type == kObjectTypeDictionary);</a>
+<a name="ln999">    cursorentry_T r = decode_cursor_entry(args.items[i].data.dictionary);</a>
+<a name="ln1000">    data-&gt;cursor_shapes[i] = r;</a>
+<a name="ln1001">  }</a>
+<a name="ln1002"> </a>
+<a name="ln1003">  tui_set_mode(ui, data-&gt;showing_mode);</a>
+<a name="ln1004">}</a>
+<a name="ln1005"> </a>
+<a name="ln1006">static void tui_update_menu(UI *ui)</a>
+<a name="ln1007">{</a>
+<a name="ln1008">    // Do nothing; menus are for GUI only</a>
+<a name="ln1009">}</a>
+<a name="ln1010"> </a>
+<a name="ln1011">static void tui_busy_start(UI *ui)</a>
+<a name="ln1012">{</a>
+<a name="ln1013">  ((TUIData *)ui-&gt;data)-&gt;busy = true;</a>
+<a name="ln1014">}</a>
+<a name="ln1015"> </a>
+<a name="ln1016">static void tui_busy_stop(UI *ui)</a>
+<a name="ln1017">{</a>
+<a name="ln1018">  ((TUIData *)ui-&gt;data)-&gt;busy = false;</a>
+<a name="ln1019">}</a>
+<a name="ln1020"> </a>
+<a name="ln1021">static void tui_mouse_on(UI *ui)</a>
+<a name="ln1022">{</a>
+<a name="ln1023">  TUIData *data = ui-&gt;data;</a>
+<a name="ln1024">  if (!data-&gt;mouse_enabled) {</a>
+<a name="ln1025">#ifdef WIN32</a>
+<a name="ln1026">    // Windows versions with vtp(ENABLE_VIRTUAL_TERMINAL_PROCESSING) and</a>
+<a name="ln1027">    // no vti(ENABLE_VIRTUAL_TERMINAL_INPUT) will need to use mouse traking of</a>
+<a name="ln1028">    // libuv. For this reason, vtp (vterm) state of libuv is temporarily</a>
+<a name="ln1029">    // disabled because the control sequence needs to be processed by libuv</a>
+<a name="ln1030">    // instead of Windows vtp.</a>
+<a name="ln1031">    // ref. https://docs.microsoft.com/en-us/windows/console/setconsolemode</a>
+<a name="ln1032">    flush_buf(ui);</a>
+<a name="ln1033">    os_set_vtp(false);</a>
+<a name="ln1034">#endif</a>
+<a name="ln1035">    unibi_out_ext(ui, data-&gt;unibi_ext.enable_mouse);</a>
+<a name="ln1036">    data-&gt;mouse_enabled = true;</a>
+<a name="ln1037">#ifdef WIN32</a>
+<a name="ln1038">    flush_buf(ui);</a>
+<a name="ln1039">    os_set_vtp(true);</a>
+<a name="ln1040">#endif</a>
+<a name="ln1041">  }</a>
+<a name="ln1042">}</a>
+<a name="ln1043"> </a>
+<a name="ln1044">static void tui_mouse_off(UI *ui)</a>
+<a name="ln1045">{</a>
+<a name="ln1046">  TUIData *data = ui-&gt;data;</a>
+<a name="ln1047">  if (data-&gt;mouse_enabled) {</a>
+<a name="ln1048">#ifdef WIN32</a>
+<a name="ln1049">    // Windows versions with vtp(ENABLE_VIRTUAL_TERMINAL_PROCESSING) and</a>
+<a name="ln1050">    // no vti(ENABLE_VIRTUAL_TERMINAL_INPUT) will need to use mouse traking of</a>
+<a name="ln1051">    // libuv. For this reason, vtp (vterm) state of libuv is temporarily</a>
+<a name="ln1052">    // disabled because the control sequence needs to be processed by libuv</a>
+<a name="ln1053">    // instead of Windows vtp.</a>
+<a name="ln1054">    // ref. https://docs.microsoft.com/en-us/windows/console/setconsolemode</a>
+<a name="ln1055">    flush_buf(ui);</a>
+<a name="ln1056">    os_set_vtp(false);</a>
+<a name="ln1057">#endif</a>
+<a name="ln1058">    unibi_out_ext(ui, data-&gt;unibi_ext.disable_mouse);</a>
+<a name="ln1059">    data-&gt;mouse_enabled = false;</a>
+<a name="ln1060">#ifdef WIN32</a>
+<a name="ln1061">    flush_buf(ui);</a>
+<a name="ln1062">    os_set_vtp(true);</a>
+<a name="ln1063">#endif</a>
+<a name="ln1064">  }</a>
+<a name="ln1065">}</a>
+<a name="ln1066"> </a>
+<a name="ln1067">static void tui_set_mode(UI *ui, ModeShape mode)</a>
+<a name="ln1068">{</a>
+<a name="ln1069">  if (!cursor_style_enabled) {</a>
+<a name="ln1070">    return;</a>
+<a name="ln1071">  }</a>
+<a name="ln1072">  TUIData *data = ui-&gt;data;</a>
+<a name="ln1073">  cursorentry_T c = data-&gt;cursor_shapes[mode];</a>
+<a name="ln1074"> </a>
+<a name="ln1075">  if (c.id != 0 &amp;&amp; c.id &lt; (int)kv_size(data-&gt;attrs) &amp;&amp; ui-&gt;rgb) {</a>
+<a name="ln1076">    HlAttrs aep = kv_A(data-&gt;attrs, c.id);</a>
+<a name="ln1077"> </a>
+<a name="ln1078">    data-&gt;want_invisible = aep.hl_blend == 100;</a>
+<a name="ln1079">    if (data-&gt;want_invisible) {</a>
+<a name="ln1080">      unibi_out(ui, unibi_cursor_invisible);</a>
+<a name="ln1081">    } else if (aep.rgb_ae_attr &amp; HL_INVERSE) {</a>
+<a name="ln1082">      // We interpret &quot;inverse&quot; as &quot;default&quot; (no termcode for &quot;inverse&quot;...).</a>
+<a name="ln1083">      // Hopefully the user's default cursor color is inverse.</a>
+<a name="ln1084">      unibi_out_ext(ui, data-&gt;unibi_ext.reset_cursor_color);</a>
+<a name="ln1085">    } else {</a>
+<a name="ln1086">      UNIBI_SET_NUM_VAR(data-&gt;params[0], aep.rgb_bg_color);</a>
+<a name="ln1087">      unibi_out_ext(ui, data-&gt;unibi_ext.set_cursor_color);</a>
+<a name="ln1088">      data-&gt;cursor_color_changed = true;</a>
+<a name="ln1089">    }</a>
+<a name="ln1090">  } else if (c.id == 0) {</a>
+<a name="ln1091">    // No cursor color for this mode; reset to default.</a>
+<a name="ln1092">    data-&gt;want_invisible = false;</a>
+<a name="ln1093">    unibi_out_ext(ui, data-&gt;unibi_ext.reset_cursor_color);</a>
+<a name="ln1094">  }</a>
+<a name="ln1095"> </a>
+<a name="ln1096">  int shape;</a>
+<a name="ln1097">  switch (c.shape) {</a>
+<a name="ln1098">    default:          abort(); break;</a>
+<a name="ln1099">    case SHAPE_BLOCK: shape = 1; break;</a>
+<a name="ln1100">    case SHAPE_HOR:   shape = 3; break;</a>
+<a name="ln1101">    case SHAPE_VER:   shape = 5; break;</a>
+<a name="ln1102">  }</a>
+<a name="ln1103">  UNIBI_SET_NUM_VAR(data-&gt;params[0], shape + (int)(c.blinkon == 0));</a>
+<a name="ln1104">  unibi_out_ext(ui, data-&gt;unibi_ext.set_cursor_style);</a>
+<a name="ln1105">}</a>
+<a name="ln1106"> </a>
+<a name="ln1107">/// @param mode editor mode</a>
+<a name="ln1108">static void tui_mode_change(UI *ui, String mode, Integer mode_idx)</a>
+<a name="ln1109">{</a>
+<a name="ln1110">  TUIData *data = ui-&gt;data;</a>
+<a name="ln1111">#ifdef UNIX</a>
+<a name="ln1112">  // If stdin is not a TTY, the LHS of pipe may change the state of the TTY</a>
+<a name="ln1113">  // after calling uv_tty_set_mode. So, set the mode of the TTY again here.</a>
+<a name="ln1114">  // #13073</a>
+<a name="ln1115">  if (data-&gt;is_starting &amp;&amp; data-&gt;input.in_fd == STDERR_FILENO) {</a>
+<a name="ln1116">    uv_tty_set_mode(&amp;data-&gt;output_handle.tty, UV_TTY_MODE_NORMAL);</a>
+<a name="ln1117">    uv_tty_set_mode(&amp;data-&gt;output_handle.tty, UV_TTY_MODE_IO);</a>
+<a name="ln1118">  }</a>
+<a name="ln1119">#endif</a>
+<a name="ln1120">  tui_set_mode(ui, (ModeShape)mode_idx);</a>
+<a name="ln1121">  data-&gt;is_starting = false;  // mode entered, no longer starting</a>
+<a name="ln1122">  data-&gt;showing_mode = (ModeShape)mode_idx;</a>
+<a name="ln1123">}</a>
+<a name="ln1124"> </a>
+<a name="ln1125">static void tui_grid_scroll(UI *ui, Integer g, Integer startrow, Integer endrow,</a>
+<a name="ln1126">                            Integer startcol, Integer endcol,</a>
+<a name="ln1127">                            Integer rows, Integer cols FUNC_ATTR_UNUSED)</a>
+<a name="ln1128">{</a>
+<a name="ln1129">  TUIData *data = ui-&gt;data;</a>
+<a name="ln1130">  UGrid *grid = &amp;data-&gt;grid;</a>
+<a name="ln1131">  int top = (int)startrow, bot = (int)endrow-1;</a>
+<a name="ln1132">  int left = (int)startcol, right = (int)endcol-1;</a>
+<a name="ln1133"> </a>
+<a name="ln1134">  bool fullwidth = left == 0 &amp;&amp; right == ui-&gt;width-1;</a>
+<a name="ln1135">  data-&gt;scroll_region_is_full_screen = fullwidth</a>
+<a name="ln1136">        &amp;&amp; top == 0 &amp;&amp; bot == ui-&gt;height-1;</a>
+<a name="ln1137"> </a>
+<a name="ln1138">  ugrid_scroll(grid, top, bot, left, right, (int)rows);</a>
+<a name="ln1139"> </a>
+<a name="ln1140">  bool can_scroll = data-&gt;can_scroll</a>
+<a name="ln1141">    &amp;&amp; (data-&gt;scroll_region_is_full_screen</a>
+<a name="ln1142">        || (data-&gt;can_change_scroll_region</a>
+<a name="ln1143">            &amp;&amp; ((left == 0 &amp;&amp; right == ui-&gt;width - 1)</a>
+<a name="ln1144">                || data-&gt;can_set_lr_margin</a>
+<a name="ln1145">                || data-&gt;can_set_left_right_margin)));</a>
+<a name="ln1146"> </a>
+<a name="ln1147">  if (can_scroll) {</a>
+<a name="ln1148">    // Change terminal scroll region and move cursor to the top</a>
+<a name="ln1149">    if (!data-&gt;scroll_region_is_full_screen) {</a>
+<a name="ln1150">      set_scroll_region(ui, top, bot, left, right);</a>
+<a name="ln1151">    }</a>
+<a name="ln1152">    cursor_goto(ui, top, left);</a>
+<a name="ln1153">    update_attrs(ui, 0);</a>
+<a name="ln1154"> </a>
+<a name="ln1155">    if (rows &gt; 0) {</a>
+<a name="ln1156">      if (rows == 1) {</a>
+<a name="ln1157">        unibi_out(ui, unibi_delete_line);</a>
+<a name="ln1158">      } else {</a>
+<a name="ln1159">        UNIBI_SET_NUM_VAR(data-&gt;params[0], (int)rows);</a>
+<a name="ln1160">        unibi_out(ui, unibi_parm_delete_line);</a>
+<a name="ln1161">      }</a>
+<a name="ln1162">    } else {</a>
+<a name="ln1163">      if (rows == -1) {</a>
+<a name="ln1164">        unibi_out(ui, unibi_insert_line);</a>
+<a name="ln1165">      } else {</a>
+<a name="ln1166">        UNIBI_SET_NUM_VAR(data-&gt;params[0], -(int)rows);</a>
+<a name="ln1167">        unibi_out(ui, unibi_parm_insert_line);</a>
+<a name="ln1168">      }</a>
+<a name="ln1169">    }</a>
+<a name="ln1170"> </a>
+<a name="ln1171">    // Restore terminal scroll region and cursor</a>
+<a name="ln1172">    if (!data-&gt;scroll_region_is_full_screen) {</a>
+<a name="ln1173">      reset_scroll_region(ui, fullwidth);</a>
+<a name="ln1174">    }</a>
+<a name="ln1175">  } else {</a>
+<a name="ln1176">    // Mark the moved region as invalid for redrawing later</a>
+<a name="ln1177">    if (rows &gt; 0) {</a>
+<a name="ln1178">      endrow = endrow - rows;</a>
+<a name="ln1179">    } else {</a>
+<a name="ln1180">      startrow = startrow - rows;</a>
+<a name="ln1181">    }</a>
+<a name="ln1182">    invalidate(ui, (int)startrow, (int)endrow, (int)startcol, (int)endcol);</a>
+<a name="ln1183">  }</a>
+<a name="ln1184">}</a>
+<a name="ln1185"> </a>
+<a name="ln1186">static void tui_hl_attr_define(UI *ui, Integer id, HlAttrs attrs,</a>
+<a name="ln1187">                               HlAttrs cterm_attrs, Array info)</a>
+<a name="ln1188">{</a>
+<a name="ln1189">  TUIData *data = ui-&gt;data;</a>
+<a name="ln1190">  kv_a(data-&gt;attrs, (size_t)id) = attrs;</a>
+<a name="ln1191">}</a>
+<a name="ln1192"> </a>
+<a name="ln1193">static void tui_bell(UI *ui)</a>
+<a name="ln1194">{</a>
+<a name="ln1195">  unibi_out(ui, unibi_bell);</a>
+<a name="ln1196">}</a>
+<a name="ln1197"> </a>
+<a name="ln1198">static void tui_visual_bell(UI *ui)</a>
+<a name="ln1199">{</a>
+<a name="ln1200">  unibi_out(ui, unibi_flash_screen);</a>
+<a name="ln1201">}</a>
+<a name="ln1202"> </a>
+<a name="ln1203">static void tui_default_colors_set(UI *ui, Integer rgb_fg, Integer rgb_bg,</a>
+<a name="ln1204">                                   Integer rgb_sp,</a>
+<a name="ln1205">                                   Integer cterm_fg, Integer cterm_bg)</a>
+<a name="ln1206">{</a>
+<a name="ln1207">  TUIData *data = ui-&gt;data;</a>
+<a name="ln1208"> </a>
+<a name="ln1209">  data-&gt;clear_attrs.rgb_fg_color = (int)rgb_fg;</a>
+<a name="ln1210">  data-&gt;clear_attrs.rgb_bg_color = (int)rgb_bg;</a>
+<a name="ln1211">  data-&gt;clear_attrs.rgb_sp_color = (int)rgb_sp;</a>
+<a name="ln1212">  data-&gt;clear_attrs.cterm_fg_color = (int)cterm_fg;</a>
+<a name="ln1213">  data-&gt;clear_attrs.cterm_bg_color = (int)cterm_bg;</a>
+<a name="ln1214"> </a>
+<a name="ln1215">  data-&gt;print_attr_id = -1;</a>
+<a name="ln1216">  invalidate(ui, 0, data-&gt;grid.height, 0, data-&gt;grid.width);</a>
+<a name="ln1217">}</a>
+<a name="ln1218"> </a>
+<a name="ln1219">static void tui_flush(UI *ui)</a>
+<a name="ln1220">{</a>
+<a name="ln1221">  TUIData *data = ui-&gt;data;</a>
+<a name="ln1222">  UGrid *grid = &amp;data-&gt;grid;</a>
+<a name="ln1223"> </a>
+<a name="ln1224">  size_t nrevents = loop_size(data-&gt;loop);</a>
+<a name="ln1225">  if (nrevents &gt; TOO_MANY_EVENTS) {</a>
+<a name="ln1226">    WLOG(&quot;TUI event-queue flooded (thread_events=%zu); purging&quot;, nrevents);</a>
+<a name="ln1227">    // Back-pressure: UI events may accumulate much faster than the terminal</a>
+<a name="ln1228">    // device can serve them. Even if SIGINT/CTRL-C is received, user must still</a>
+<a name="ln1229">    // wait for the TUI event-queue to drain, and if there are ~millions of</a>
+<a name="ln1230">    // events in the queue, it could take hours. Clearing the queue allows the</a>
+<a name="ln1231">    // UI to recover. #1234 #5396</a>
+<a name="ln1232">    loop_purge(data-&gt;loop);</a>
+<a name="ln1233">    tui_busy_stop(ui);  // avoid hidden cursor</a>
+<a name="ln1234">  }</a>
+<a name="ln1235"> </a>
+<a name="ln1236">  while (kv_size(data-&gt;invalid_regions)) {</a>
+<a name="ln1237">    Rect r = kv_pop(data-&gt;invalid_regions);</a>
+<a name="ln1238">    assert(r.bot &lt;= grid-&gt;height &amp;&amp; r.right &lt;= grid-&gt;width);</a>
+<a name="ln1239"> </a>
+<a name="ln1240">    for (int row = r.top; row &lt; r.bot; row++) {</a>
+<a name="ln1241">      int clear_attr = grid-&gt;cells[row][r.right-1].attr;</a>
+<a name="ln1242">      int clear_col;</a>
+<a name="ln1243">      for (clear_col = r.right; clear_col &gt; 0; clear_col--) {</a>
+<a name="ln1244">        UCell *cell = &amp;grid-&gt;cells[row][clear_col-1];</a>
+<a name="ln1245">        if (!(cell-&gt;data[0] == ' ' &amp;&amp; cell-&gt;data[1] == NUL</a>
+<a name="ln1246">              &amp;&amp; cell-&gt;attr == clear_attr)) {</a>
+<a name="ln1247">          break;</a>
+<a name="ln1248">        }</a>
+<a name="ln1249">      }</a>
+<a name="ln1250"> </a>
+<a name="ln1251">      UGRID_FOREACH_CELL(grid, row, r.left, clear_col, {</a>
+<a name="ln1252">        cursor_goto(ui, row, curcol);</a>
+<a name="ln1253">        print_cell(ui, cell);</a>
+<a name="ln1254">      });</a>
+<a name="ln1255">      if (clear_col &lt; r.right) {</a>
+<a name="ln1256">        clear_region(ui, row, row+1, clear_col, r.right, clear_attr);</a>
+<a name="ln1257">      }</a>
+<a name="ln1258">    }</a>
+<a name="ln1259">  }</a>
+<a name="ln1260"> </a>
+<a name="ln1261">  cursor_goto(ui, data-&gt;row, data-&gt;col);</a>
+<a name="ln1262"> </a>
+<a name="ln1263">  flush_buf(ui);</a>
+<a name="ln1264">}</a>
+<a name="ln1265"> </a>
+<a name="ln1266">/// Dumps termcap info to the messages area, if 'verbose' &gt;= 3.</a>
+<a name="ln1267">static void show_termcap_event(void **argv)</a>
+<a name="ln1268">{</a>
+<a name="ln1269">  if (p_verbose &lt; 3) {</a>
+<a name="ln1270">    return;</a>
+<a name="ln1271">  }</a>
+<a name="ln1272">  const unibi_term *const ut = argv[0];</a>
+<a name="ln1273">  if (!ut) {</a>
+<a name="ln1274">    abort();</a>
+<a name="ln1275">  }</a>
+<a name="ln1276">  verbose_enter();</a>
+<a name="ln1277">  // XXX: (future) if unibi_term is modified (e.g. after a terminal</a>
+<a name="ln1278">  // query-response) this is a race condition.</a>
+<a name="ln1279">  terminfo_info_msg(ut);</a>
+<a name="ln1280">  verbose_leave();</a>
+<a name="ln1281">  verbose_stop();  // flush now</a>
+<a name="ln1282">}</a>
+<a name="ln1283"> </a>
+<a name="ln1284">#ifdef UNIX</a>
+<a name="ln1285">static void suspend_event(void **argv)</a>
+<a name="ln1286">{</a>
+<a name="ln1287">  UI *ui = argv[0];</a>
+<a name="ln1288">  TUIData *data = ui-&gt;data;</a>
+<a name="ln1289">  bool enable_mouse = data-&gt;mouse_enabled;</a>
+<a name="ln1290">  tui_terminal_stop(ui);</a>
+<a name="ln1291">  data-&gt;cont_received = false;</a>
+<a name="ln1292">  stream_set_blocking(input_global_fd(), true);   // normalize stream (#2598)</a>
+<a name="ln1293">  signal_stop();</a>
+<a name="ln1294">  kill(0, SIGTSTP);</a>
+<a name="ln1295">  signal_start();</a>
+<a name="ln1296">  while (!data-&gt;cont_received) {</a>
+<a name="ln1297">    // poll the event loop until SIGCONT is received</a>
+<a name="ln1298">    loop_poll_events(data-&gt;loop, -1);</a>
+<a name="ln1299">  }</a>
+<a name="ln1300">  tui_terminal_start(ui);</a>
+<a name="ln1301">  tui_terminal_after_startup(ui);</a>
+<a name="ln1302">  if (enable_mouse) {</a>
+<a name="ln1303">    tui_mouse_on(ui);</a>
+<a name="ln1304">  }</a>
+<a name="ln1305">  stream_set_blocking(input_global_fd(), false);  // libuv expects this</a>
+<a name="ln1306">  // resume the main thread</a>
+<a name="ln1307">  CONTINUE(data-&gt;bridge);</a>
+<a name="ln1308">}</a>
+<a name="ln1309">#endif</a>
+<a name="ln1310"> </a>
+<a name="ln1311">static void tui_suspend(UI *ui)</a>
+<a name="ln1312">{</a>
+<a name="ln1313">#ifdef UNIX</a>
+<a name="ln1314">  TUIData *data = ui-&gt;data;</a>
+<a name="ln1315">  // kill(0, SIGTSTP) won't stop the UI thread, so we must poll for SIGCONT</a>
+<a name="ln1316">  // before continuing. This is done in another callback to avoid</a>
+<a name="ln1317">  // loop_poll_events recursion</a>
+<a name="ln1318">  multiqueue_put_event(data-&gt;loop-&gt;fast_events,</a>
+<a name="ln1319">                       event_create(suspend_event, 1, ui));</a>
+<a name="ln1320">#endif</a>
+<a name="ln1321">}</a>
+<a name="ln1322"> </a>
+<a name="ln1323">static void tui_set_title(UI *ui, String title)</a>
+<a name="ln1324">{</a>
+<a name="ln1325">  TUIData *data = ui-&gt;data;</a>
+<a name="ln1326">  if (!(title.data &amp;&amp; unibi_get_str(data-&gt;ut, unibi_to_status_line)</a>
+<a name="ln1327">        &amp;&amp; unibi_get_str(data-&gt;ut, unibi_from_status_line))) {</a>
+<a name="ln1328">    return;</a>
+<a name="ln1329">  }</a>
+<a name="ln1330">  unibi_out(ui, unibi_to_status_line);</a>
+<a name="ln1331">  out(ui, title.data, title.size);</a>
+<a name="ln1332">  unibi_out(ui, unibi_from_status_line);</a>
+<a name="ln1333">}</a>
+<a name="ln1334"> </a>
+<a name="ln1335">static void tui_set_icon(UI *ui, String icon)</a>
+<a name="ln1336">{</a>
+<a name="ln1337">}</a>
+<a name="ln1338"> </a>
+<a name="ln1339">static void tui_screenshot(UI *ui, String path)</a>
+<a name="ln1340">{</a>
+<a name="ln1341">  TUIData *data = ui-&gt;data;</a>
+<a name="ln1342">  UGrid *grid = &amp;data-&gt;grid;</a>
+<a name="ln1343">  flush_buf(ui);</a>
+<a name="ln1344">  grid-&gt;row = 0;</a>
+<a name="ln1345">  grid-&gt;col = 0;</a>
+<a name="ln1346"> </a>
+<a name="ln1347">  FILE *f = fopen(path.data, &quot;w&quot;);</a>
+<a name="ln1348">  data-&gt;screenshot = f;</a>
+<a name="ln1349">  fprintf(f, &quot;%d,%d\n&quot;, grid-&gt;height, grid-&gt;width);</a>
+<a name="ln1350">  unibi_out(ui, unibi_clear_screen);</a>
+<a name="ln1351">  for (int i = 0; i &lt; grid-&gt;height; i++) {</a>
+<a name="ln1352">    cursor_goto(ui, i, 0);</a>
+<a name="ln1353">    for (int j = 0; j &lt; grid-&gt;width; j++) {</a>
+<a name="ln1354">      print_cell(ui, &amp;grid-&gt;cells[i][j]);</a>
+<a name="ln1355">    }</a>
+<a name="ln1356">  }</a>
+<a name="ln1357">  flush_buf(ui);</a>
+<a name="ln1358">  data-&gt;screenshot = NULL;</a>
+<a name="ln1359"> </a>
+<a name="ln1360">  fclose(f);</a>
+<a name="ln1361">}</a>
+<a name="ln1362"> </a>
+<a name="ln1363"> </a>
+<a name="ln1364">static void tui_option_set(UI *ui, String name, Object value)</a>
+<a name="ln1365">{</a>
+<a name="ln1366">  TUIData *data = ui-&gt;data;</a>
+<a name="ln1367">  if (strequal(name.data, &quot;termguicolors&quot;)) {</a>
+<a name="ln1368">    ui-&gt;rgb = value.data.boolean;</a>
+<a name="ln1369"> </a>
+<a name="ln1370">    data-&gt;print_attr_id = -1;</a>
+<a name="ln1371">    invalidate(ui, 0, data-&gt;grid.height, 0, data-&gt;grid.width);</a>
+<a name="ln1372">  }</a>
+<a name="ln1373">  if (strequal(name.data, &quot;ttimeout&quot;)) {</a>
+<a name="ln1374">    data-&gt;input.ttimeout = value.data.boolean;</a>
+<a name="ln1375">  }</a>
+<a name="ln1376">  if (strequal(name.data, &quot;ttimeoutlen&quot;)) {</a>
+<a name="ln1377">    data-&gt;input.ttimeoutlen = (long)value.data.integer;</a>
+<a name="ln1378">  }</a>
+<a name="ln1379">}</a>
+<a name="ln1380"> </a>
+<a name="ln1381">static void tui_raw_line(UI *ui, Integer g, Integer linerow, Integer startcol,</a>
+<a name="ln1382">                         Integer endcol, Integer clearcol, Integer clearattr,</a>
+<a name="ln1383">                         LineFlags flags, const schar_T *chunk,</a>
+<a name="ln1384">                         const sattr_T *attrs)</a>
+<a name="ln1385">{</a>
+<a name="ln1386">  TUIData *data = ui-&gt;data;</a>
+<a name="ln1387">  UGrid *grid = &amp;data-&gt;grid;</a>
+<a name="ln1388">  for (Integer c = startcol; c &lt; endcol; c++) {</a>
+<a name="ln1389">    memcpy(grid-&gt;cells[linerow][c].data, chunk[c-startcol], sizeof(schar_T));</a>
+<a name="ln1390">    assert((size_t)attrs[c-startcol] &lt; kv_size(data-&gt;attrs));</a>
+<a name="ln1391">    grid-&gt;cells[linerow][c].attr = attrs[c-startcol];</a>
+<a name="ln1392">  }</a>
+<a name="ln1393">  UGRID_FOREACH_CELL(grid, (int)linerow, (int)startcol, (int)endcol, {</a>
+<a name="ln1394">    cursor_goto(ui, (int)linerow, curcol);</a>
+<a name="ln1395">    print_cell(ui, cell);</a>
+<a name="ln1396">  });</a>
+<a name="ln1397"> </a>
+<a name="ln1398">  if (clearcol &gt; endcol) {</a>
+<a name="ln1399">    ugrid_clear_chunk(grid, (int)linerow, (int)endcol, (int)clearcol,</a>
+<a name="ln1400">                      (sattr_T)clearattr);</a>
+<a name="ln1401">    clear_region(ui, (int)linerow, (int)linerow+1, (int)endcol, (int)clearcol,</a>
+<a name="ln1402">                 (int)clearattr);</a>
+<a name="ln1403">  }</a>
+<a name="ln1404"> </a>
+<a name="ln1405">  if (flags &amp; kLineFlagWrap &amp;&amp; ui-&gt;width == grid-&gt;width</a>
+<a name="ln1406">      &amp;&amp; linerow + 1 &lt; grid-&gt;height) {</a>
+<a name="ln1407">    // Only do line wrapping if the grid width is equal to the terminal</a>
+<a name="ln1408">    // width and the line continuation is within the grid.</a>
+<a name="ln1409"> </a>
+<a name="ln1410">    if (endcol != grid-&gt;width) {</a>
+<a name="ln1411">      // Print the last char of the row, if we haven't already done so.</a>
+<a name="ln1412">      int size = grid-&gt;cells[linerow][grid-&gt;width - 1].data[0] == NUL ? 2 : 1;</a>
+<a name="ln1413">      cursor_goto(ui, (int)linerow, grid-&gt;width - size);</a>
+<a name="ln1414">      print_cell(ui, &amp;grid-&gt;cells[linerow][grid-&gt;width - size]);</a>
+<a name="ln1415">    }</a>
+<a name="ln1416"> </a>
+<a name="ln1417">    // Wrap the cursor over to the next line. The next line will be</a>
+<a name="ln1418">    // printed immediately without an intervening newline.</a>
+<a name="ln1419">    final_column_wrap(ui);</a>
+<a name="ln1420">  }</a>
+<a name="ln1421">}</a>
+<a name="ln1422"> </a>
+<a name="ln1423">static void invalidate(UI *ui, int top, int bot, int left, int right)</a>
+<a name="ln1424">{</a>
+<a name="ln1425">  TUIData *data = ui-&gt;data;</a>
+<a name="ln1426">  Rect *intersects = NULL;</a>
+<a name="ln1427"> </a>
+<a name="ln1428">  for (size_t i = 0; i &lt; kv_size(data-&gt;invalid_regions); i++) {</a>
+<a name="ln1429">    Rect *r = &amp;kv_A(data-&gt;invalid_regions, i);</a>
+<a name="ln1430">    // adjacent regions are treated as overlapping</a>
+<a name="ln1431">    if (!(top &gt; r-&gt;bot || bot &lt; r-&gt;top)</a>
+<a name="ln1432">        &amp;&amp; !(left &gt; r-&gt;right || right &lt; r-&gt;left)) {</a>
+<a name="ln1433">      intersects = r;</a>
+<a name="ln1434">      break;</a>
+<a name="ln1435">    }</a>
+<a name="ln1436">  }</a>
+<a name="ln1437"> </a>
+<a name="ln1438">  if (intersects) {</a>
+<a name="ln1439">    // If top/bot/left/right intersects with a invalid rect, we replace it</a>
+<a name="ln1440">    // by the union</a>
+<a name="ln1441">    intersects-&gt;top = MIN(top, intersects-&gt;top);</a>
+<a name="ln1442">    intersects-&gt;bot = MAX(bot, intersects-&gt;bot);</a>
+<a name="ln1443">    intersects-&gt;left = MIN(left, intersects-&gt;left);</a>
+<a name="ln1444">    intersects-&gt;right = MAX(right, intersects-&gt;right);</a>
+<a name="ln1445">  } else {</a>
+<a name="ln1446">    // Else just add a new entry;</a>
+<a name="ln1447">    kv_push(data-&gt;invalid_regions, ((Rect) { top, bot, left, right }));</a>
+<a name="ln1448">  }</a>
+<a name="ln1449">}</a>
+<a name="ln1450"> </a>
+<a name="ln1451">/// Tries to get the user's wanted dimensions (columns and rows) for the entire</a>
+<a name="ln1452">/// application (i.e., the host terminal).</a>
+<a name="ln1453">static void tui_guess_size(UI *ui)</a>
+<a name="ln1454">{</a>
+<a name="ln1455">  TUIData *data = ui-&gt;data;</a>
+<a name="ln1456">  int width = 0, height = 0;</a>
+<a name="ln1457"> </a>
+<a name="ln1458">  // 1 - look for non-default 'columns' and 'lines' options during startup</a>
+<a name="ln1459">  if (data-&gt;is_starting &amp;&amp; (Columns != DFLT_COLS || Rows != DFLT_ROWS)) {</a>
+<a name="ln1460">    did_user_set_dimensions = true;</a>
+<a name="ln1461">    assert(Columns &gt;= INT_MIN &amp;&amp; Columns &lt;= INT_MAX);</a>
+<a name="ln1462">    assert(Rows &gt;= INT_MIN &amp;&amp; Rows &lt;= INT_MAX);</a>
+<a name="ln1463">    width = (int)Columns;</a>
+<a name="ln1464">    height = (int)Rows;</a>
+<a name="ln1465">    goto end;</a>
+<a name="ln1466">  }</a>
+<a name="ln1467"> </a>
+<a name="ln1468">  // 2 - try from a system call(ioctl/TIOCGWINSZ on unix)</a>
+<a name="ln1469">  if (data-&gt;out_isatty</a>
+<a name="ln1470">      &amp;&amp; !uv_tty_get_winsize(&amp;data-&gt;output_handle.tty, &amp;width, &amp;height)) {</a>
+<a name="ln1471">    goto end;</a>
+<a name="ln1472">  }</a>
+<a name="ln1473"> </a>
+<a name="ln1474">  // 3 - use $LINES/$COLUMNS if available</a>
+<a name="ln1475">  const char *val;</a>
+<a name="ln1476">  int advance;</a>
+<a name="ln1477">  if ((val = os_getenv(&quot;LINES&quot;))</a>
+<a name="ln1478">      &amp;&amp; sscanf(val, &quot;%d%n&quot;, &amp;height, &amp;advance) != EOF &amp;&amp; advance</a>
+<a name="ln1479">      &amp;&amp; (val = os_getenv(&quot;COLUMNS&quot;))</a>
+<a name="ln1480">      &amp;&amp; sscanf(val, &quot;%d%n&quot;, &amp;width, &amp;advance) != EOF &amp;&amp; advance) {</a>
+<a name="ln1481">    goto end;</a>
+<a name="ln1482">  }</a>
+<a name="ln1483"> </a>
+<a name="ln1484">  // 4 - read from terminfo if available</a>
+<a name="ln1485">  height = unibi_get_num(data-&gt;ut, unibi_lines);</a>
+<a name="ln1486">  width = unibi_get_num(data-&gt;ut, unibi_columns);</a>
+<a name="ln1487"> </a>
+<a name="ln1488">end:</a>
+<a name="ln1489">  if (width &lt;= 0 || height &lt;= 0) {</a>
+<a name="ln1490">    // use the defaults</a>
+<a name="ln1491">    width = DFLT_COLS;</a>
+<a name="ln1492">    height = DFLT_ROWS;</a>
+<a name="ln1493">  }</a>
+<a name="ln1494"> </a>
+<a name="ln1495">  data-&gt;bridge-&gt;bridge.width = ui-&gt;width = width;</a>
+<a name="ln1496">  data-&gt;bridge-&gt;bridge.height = ui-&gt;height = height;</a>
+<a name="ln1497">}</a>
+<a name="ln1498"> </a>
+<a name="ln1499">static void unibi_goto(UI *ui, int row, int col)</a>
+<a name="ln1500">{</a>
+<a name="ln1501">  TUIData *data = ui-&gt;data;</a>
+<a name="ln1502">  UNIBI_SET_NUM_VAR(data-&gt;params[0], row);</a>
+<a name="ln1503">  UNIBI_SET_NUM_VAR(data-&gt;params[1], col);</a>
+<a name="ln1504">  unibi_out(ui, unibi_cursor_address);</a>
+<a name="ln1505">}</a>
+<a name="ln1506"> </a>
+<a name="ln1507">#define UNIBI_OUT(fn) \</a>
+<a name="ln1508">  do { \</a>
+<a name="ln1509">    TUIData *data = ui-&gt;data; \</a>
+<a name="ln1510">    const char *str = NULL; \</a>
+<a name="ln1511">    if (unibi_index &gt;= 0) { \</a>
+<a name="ln1512">      str = fn(data-&gt;ut, (unsigned)unibi_index); \</a>
+<a name="ln1513">    } \</a>
+<a name="ln1514">    if (str) { \</a>
+<a name="ln1515">      unibi_var_t vars[26 + 26]; \</a>
+<a name="ln1516">      size_t orig_pos = data-&gt;bufpos; \</a>
+<a name="ln1517">      \</a>
+<a name="ln1518">      memset(&amp;vars, 0, sizeof(vars)); \</a>
+<a name="ln1519">      data-&gt;cork = true; \</a>
+<a name="ln1520">retry: \</a>
+<a name="ln1521">      unibi_format(vars, vars + 26, str, data-&gt;params, out, ui, NULL, NULL); \</a>
+<a name="ln1522">      if (data-&gt;overflow) { \</a>
+<a name="ln1523">        data-&gt;bufpos = orig_pos; \</a>
+<a name="ln1524">        flush_buf(ui); \</a>
+<a name="ln1525">        goto retry; \</a>
+<a name="ln1526">      } \</a>
+<a name="ln1527">      data-&gt;cork = false; \</a>
+<a name="ln1528">    } \</a>
+<a name="ln1529">  } while (0)</a>
+<a name="ln1530">static void unibi_out(UI *ui, int unibi_index)</a>
+<a name="ln1531">{</a>
+<a name="ln1532">  UNIBI_OUT(unibi_get_str);</a>
+<a name="ln1533">}</a>
+<a name="ln1534">static void unibi_out_ext(UI *ui, int unibi_index)</a>
+<a name="ln1535">{</a>
+<a name="ln1536">  UNIBI_OUT(unibi_get_ext_str);</a>
+<a name="ln1537">}</a>
+<a name="ln1538">#undef UNIBI_OUT</a>
+<a name="ln1539"> </a>
+<a name="ln1540">static void out(void *ctx, const char *str, size_t len)</a>
+<a name="ln1541">{</a>
+<a name="ln1542">  UI *ui = ctx;</a>
+<a name="ln1543">  TUIData *data = ui-&gt;data;</a>
+<a name="ln1544">  size_t available = sizeof(data-&gt;buf) - data-&gt;bufpos;</a>
+<a name="ln1545"> </a>
+<a name="ln1546">  if (data-&gt;cork &amp;&amp; data-&gt;overflow) {</a>
+<a name="ln1547">    return;</a>
+<a name="ln1548">  }</a>
+<a name="ln1549"> </a>
+<a name="ln1550">  if (len &gt; available) {</a>
+<a name="ln1551">    if (data-&gt;cork) {</a>
+<a name="ln1552">      data-&gt;overflow = true;</a>
+<a name="ln1553">      return;</a>
+<a name="ln1554">    } else {</a>
+<a name="ln1555">      flush_buf(ui);</a>
+<a name="ln1556">    }</a>
+<a name="ln1557">  }</a>
+<a name="ln1558"> </a>
+<a name="ln1559">  memcpy(data-&gt;buf + data-&gt;bufpos, str, len);</a>
+<a name="ln1560">  data-&gt;bufpos += len;</a>
+<a name="ln1561">}</a>
+<a name="ln1562"> </a>
+<a name="ln1563">static void unibi_set_if_empty(unibi_term *ut, enum unibi_string str,</a>
+<a name="ln1564">    const char *val)</a>
+<a name="ln1565">{</a>
+<a name="ln1566">  if (!unibi_get_str(ut, str)) {</a>
+<a name="ln1567">    unibi_set_str(ut, str, val);</a>
+<a name="ln1568">  }</a>
+<a name="ln1569">}</a>
+<a name="ln1570"> </a>
+<a name="ln1571">static int unibi_find_ext_str(unibi_term *ut, const char *name)</a>
+<a name="ln1572">{</a>
+<a name="ln1573">  size_t max = unibi_count_ext_str(ut);</a>
+<a name="ln1574">  for (size_t i = 0; i &lt; max; i++) {</a>
+<a name="ln1575">    const char * n = unibi_get_ext_str_name(ut, i);</a>
+<a name="ln1576">    if (n &amp;&amp; 0 == strcmp(n, name)) {</a>
+<a name="ln1577">      return (int)i;</a>
+<a name="ln1578">    }</a>
+<a name="ln1579">  }</a>
+<a name="ln1580">  return -1;</a>
+<a name="ln1581">}</a>
+<a name="ln1582"> </a>
+<a name="ln1583">static int unibi_find_ext_bool(unibi_term *ut, const char *name)</a>
+<a name="ln1584">{</a>
+<a name="ln1585">  size_t max = unibi_count_ext_bool(ut);</a>
+<a name="ln1586">  for (size_t i = 0; i &lt; max; i++) {</a>
+<a name="ln1587">    const char * n = unibi_get_ext_bool_name(ut, i);</a>
+<a name="ln1588">    if (n &amp;&amp; 0 == strcmp(n, name)) {</a>
+<a name="ln1589">      return (int)i;</a>
+<a name="ln1590">    }</a>
+<a name="ln1591">  }</a>
+<a name="ln1592">  return -1;</a>
+<a name="ln1593">}</a>
+<a name="ln1594"> </a>
+<a name="ln1595">/// Patches the terminfo records after loading from system or built-in db.</a>
+<a name="ln1596">/// Several entries in terminfo are known to be deficient or outright wrong;</a>
+<a name="ln1597">/// and several terminal emulators falsely announce incorrect terminal types.</a>
+<a name="ln1598">static void patch_terminfo_bugs(TUIData *data, const char *term,</a>
+<a name="ln1599">                                const char *colorterm, long vte_version,</a>
+<a name="ln1600">                                long konsolev, bool iterm_env, bool nsterm)</a>
+<a name="ln1601">{</a>
+<a name="ln1602">  unibi_term *ut = data-&gt;ut;</a>
+<a name="ln1603">  const char *xterm_version = os_getenv(&quot;XTERM_VERSION&quot;);</a>
+<a name="ln1604">#if 0   // We don't need to identify this specifically, for now.</a>
+<a name="ln1605">  bool roxterm = !!os_getenv(&quot;ROXTERM_ID&quot;);</a>
+<a name="ln1606">#endif</a>
+<a name="ln1607">  bool xterm = terminfo_is_term_family(term, &quot;xterm&quot;)</a>
+<a name="ln1608">    // Treat Terminal.app as generic xterm-like, for now.</a>
+<a name="ln1609">    || nsterm;</a>
+<a name="ln1610">  bool kitty = terminfo_is_term_family(term, &quot;xterm-kitty&quot;);</a>
+<a name="ln1611">  bool linuxvt = terminfo_is_term_family(term, &quot;linux&quot;);</a>
+<a name="ln1612">  bool bsdvt = terminfo_is_bsd_console(term);</a>
+<a name="ln1613">  bool rxvt = terminfo_is_term_family(term, &quot;rxvt&quot;);</a>
+<a name="ln1614">  bool teraterm = terminfo_is_term_family(term, &quot;teraterm&quot;);</a>
+<a name="ln1615">  bool putty = terminfo_is_term_family(term, &quot;putty&quot;);</a>
+<a name="ln1616">  bool screen = terminfo_is_term_family(term, &quot;screen&quot;);</a>
+<a name="ln1617">  bool tmux = terminfo_is_term_family(term, &quot;tmux&quot;) || !!os_getenv(&quot;TMUX&quot;);</a>
+<a name="ln1618">  bool st = terminfo_is_term_family(term, &quot;st&quot;);</a>
+<a name="ln1619">  bool gnome = terminfo_is_term_family(term, &quot;gnome&quot;)</a>
+<a name="ln1620">    || terminfo_is_term_family(term, &quot;vte&quot;);</a>
+<a name="ln1621">  bool iterm = terminfo_is_term_family(term, &quot;iterm&quot;)</a>
+<a name="ln1622">    || terminfo_is_term_family(term, &quot;iterm2&quot;)</a>
+<a name="ln1623">    || terminfo_is_term_family(term, &quot;iTerm.app&quot;)</a>
+<a name="ln1624">    || terminfo_is_term_family(term, &quot;iTerm2.app&quot;);</a>
+<a name="ln1625">  bool alacritty = terminfo_is_term_family(term, &quot;alacritty&quot;);</a>
+<a name="ln1626">  // None of the following work over SSH; see :help TERM .</a>
+<a name="ln1627">  bool iterm_pretending_xterm = xterm &amp;&amp; iterm_env;</a>
+<a name="ln1628">  bool gnome_pretending_xterm = xterm &amp;&amp; colorterm</a>
+<a name="ln1629">    &amp;&amp; strstr(colorterm, &quot;gnome-terminal&quot;);</a>
+<a name="ln1630">  bool mate_pretending_xterm = xterm &amp;&amp; colorterm</a>
+<a name="ln1631">    &amp;&amp; strstr(colorterm, &quot;mate-terminal&quot;);</a>
+<a name="ln1632">  bool true_xterm = xterm &amp;&amp; !!xterm_version &amp;&amp; !bsdvt;</a>
+<a name="ln1633">  bool cygwin = terminfo_is_term_family(term, &quot;cygwin&quot;);</a>
+<a name="ln1634"> </a>
+<a name="ln1635">  char *fix_normal = (char *)unibi_get_str(ut, unibi_cursor_normal);</a>
+<a name="ln1636">  if (fix_normal) {</a>
+<a name="ln1637">    if (STARTS_WITH(fix_normal, &quot;\x1b[?12l&quot;)) {</a>
+<a name="ln1638">      // terminfo typically includes DECRST 12 as part of setting up the</a>
+<a name="ln1639">      // normal cursor, which interferes with the user's control via</a>
+<a name="ln1640">      // set_cursor_style.  When DECRST 12 is present, skip over it, but honor</a>
+<a name="ln1641">      // the rest of the cnorm setting.</a>
+<a name="ln1642">      fix_normal += sizeof &quot;\x1b[?12l&quot; - 1;</a>
+<a name="ln1643">      unibi_set_str(ut, unibi_cursor_normal, fix_normal);</a>
+<a name="ln1644">    }</a>
+<a name="ln1645">    if (linuxvt</a>
+<a name="ln1646">        &amp;&amp; strlen(fix_normal) &gt;= (sizeof LINUXSET0C - 1)</a>
+<a name="ln1647">        &amp;&amp; !memcmp(strchr(fix_normal, 0) - (sizeof LINUXSET0C - 1),</a>
+<a name="ln1648">                   LINUXSET0C, sizeof LINUXSET0C - 1)) {</a>
+<a name="ln1649">      // The Linux terminfo entry similarly includes a Linux-idiosyncractic</a>
+<a name="ln1650">      // cursor shape reset in cnorm, which similarly interferes with</a>
+<a name="ln1651">      // set_cursor_style.</a>
+<a name="ln1652">      fix_normal[strlen(fix_normal) - (sizeof LINUXSET0C - 1)] = 0;</a>
+<a name="ln1653">    }</a>
+<a name="ln1654">  }</a>
+<a name="ln1655">  char *fix_invisible = (char *)unibi_get_str(ut, unibi_cursor_invisible);</a>
+<a name="ln1656">  if (fix_invisible) {</a>
+<a name="ln1657">    if (linuxvt</a>
+<a name="ln1658">        &amp;&amp; strlen(fix_invisible) &gt;= (sizeof LINUXSET1C - 1)</a>
+<a name="ln1659">        &amp;&amp; !memcmp(strchr(fix_invisible, 0) - (sizeof LINUXSET1C - 1),</a>
+<a name="ln1660">                   LINUXSET1C, sizeof LINUXSET1C - 1)) {</a>
+<a name="ln1661">      // The Linux terminfo entry similarly includes a Linux-idiosyncractic</a>
+<a name="ln1662">      // cursor shape reset in cinvis, which similarly interferes with</a>
+<a name="ln1663">      // set_cursor_style.</a>
+<a name="ln1664">      fix_invisible[strlen(fix_invisible) - (sizeof LINUXSET1C - 1)] = 0;</a>
+<a name="ln1665">    }</a>
+<a name="ln1666">  }</a>
+<a name="ln1667"> </a>
+<a name="ln1668">  if (tmux || screen || kitty) {</a>
+<a name="ln1669">    // Disable BCE in some cases we know it is not working. #8806</a>
+<a name="ln1670">    unibi_set_bool(ut, unibi_back_color_erase, false);</a>
+<a name="ln1671">  }</a>
+<a name="ln1672"> </a>
+<a name="ln1673">  if (xterm) {</a>
+<a name="ln1674">    // Termit, LXTerminal, GTKTerm2, GNOME Terminal, MATE Terminal, roxterm,</a>
+<a name="ln1675">    // and EvilVTE falsely claim to be xterm and do not support important xterm</a>
+<a name="ln1676">    // control sequences that we use.  In an ideal world, these would have</a>
+<a name="ln1677">    // their own terminal types and terminfo entries, like PuTTY does, and not</a>
+<a name="ln1678">    // claim to be xterm.  Or they would mimic xterm properly enough to be</a>
+<a name="ln1679">    // treatable as xterm.</a>
+<a name="ln1680"> </a>
+<a name="ln1681">    // 2017-04 terminfo.src lacks these.  Xterm-likes have them.</a>
+<a name="ln1682">    unibi_set_if_empty(ut, unibi_to_status_line, &quot;\x1b]0;&quot;);</a>
+<a name="ln1683">    unibi_set_if_empty(ut, unibi_from_status_line, &quot;\x07&quot;);</a>
+<a name="ln1684">    unibi_set_if_empty(ut, unibi_set_tb_margin, &quot;\x1b[%i%p1%d;%p2%dr&quot;);</a>
+<a name="ln1685">    unibi_set_if_empty(ut, unibi_enter_italics_mode, &quot;\x1b[3m&quot;);</a>
+<a name="ln1686">    unibi_set_if_empty(ut, unibi_exit_italics_mode, &quot;\x1b[23m&quot;);</a>
+<a name="ln1687"> </a>
+<a name="ln1688">    if (true_xterm) {</a>
+<a name="ln1689">      // 2017-04 terminfo.src lacks these.  genuine Xterm has them.</a>
+<a name="ln1690">      unibi_set_if_empty(ut, unibi_set_lr_margin, &quot;\x1b[%i%p1%d;%p2%ds&quot;);</a>
+<a name="ln1691">      unibi_set_if_empty(ut, unibi_set_left_margin_parm, &quot;\x1b[%i%p1%ds&quot;);</a>
+<a name="ln1692">      unibi_set_if_empty(ut, unibi_set_right_margin_parm, &quot;\x1b[%i;%p2%ds&quot;);</a>
+<a name="ln1693">    } else {</a>
+<a name="ln1694">      // Fix things advertised via TERM=xterm, for non-xterm.</a>
+<a name="ln1695">      if (unibi_get_str(ut, unibi_set_lr_margin)) {</a>
+<a name="ln1696">        ILOG(&quot;Disabling smglr with TERM=xterm for non-xterm.&quot;);</a>
+<a name="ln1697">        unibi_set_str(ut, unibi_set_lr_margin, NULL);</a>
+<a name="ln1698">      }</a>
+<a name="ln1699">    }</a>
+<a name="ln1700"> </a>
+<a name="ln1701">#ifdef WIN32</a>
+<a name="ln1702">    // XXX: workaround libuv implicit LF =&gt; CRLF conversion. #10558</a>
+<a name="ln1703">    unibi_set_str(ut, unibi_cursor_down, &quot;\x1b[B&quot;);</a>
+<a name="ln1704">#endif</a>
+<a name="ln1705">  } else if (rxvt) {</a>
+<a name="ln1706">    // 2017-04 terminfo.src lacks these.  Unicode rxvt has them.</a>
+<a name="ln1707">    unibi_set_if_empty(ut, unibi_enter_italics_mode, &quot;\x1b[3m&quot;);</a>
+<a name="ln1708">    unibi_set_if_empty(ut, unibi_exit_italics_mode, &quot;\x1b[23m&quot;);</a>
+<a name="ln1709">    unibi_set_if_empty(ut, unibi_to_status_line, &quot;\x1b]2&quot;);</a>
+<a name="ln1710">    unibi_set_if_empty(ut, unibi_from_status_line, &quot;\x07&quot;);</a>
+<a name="ln1711">    // 2017-04 terminfo.src has older control sequences.</a>
+<a name="ln1712">    unibi_set_str(ut, unibi_enter_ca_mode, &quot;\x1b[?1049h&quot;);</a>
+<a name="ln1713">    unibi_set_str(ut, unibi_exit_ca_mode, &quot;\x1b[?1049l&quot;);</a>
+<a name="ln1714">  } else if (screen) {</a>
+<a name="ln1715">    // per the screen manual; 2017-04 terminfo.src lacks these.</a>
+<a name="ln1716">    unibi_set_if_empty(ut, unibi_to_status_line, &quot;\x1b_&quot;);</a>
+<a name="ln1717">    unibi_set_if_empty(ut, unibi_from_status_line, &quot;\x1b\\&quot;);</a>
+<a name="ln1718">    // Fix an issue where smglr is inherited by TERM=screen.xterm.</a>
+<a name="ln1719">    if (unibi_get_str(ut, unibi_set_lr_margin)) {</a>
+<a name="ln1720">      ILOG(&quot;Disabling smglr with TERM=screen.xterm for screen.&quot;);</a>
+<a name="ln1721">      unibi_set_str(ut, unibi_set_lr_margin, NULL);</a>
+<a name="ln1722">    }</a>
+<a name="ln1723">  } else if (tmux) {</a>
+<a name="ln1724">    unibi_set_if_empty(ut, unibi_to_status_line, &quot;\x1b_&quot;);</a>
+<a name="ln1725">    unibi_set_if_empty(ut, unibi_from_status_line, &quot;\x1b\\&quot;);</a>
+<a name="ln1726">    unibi_set_if_empty(ut, unibi_enter_italics_mode, &quot;\x1b[3m&quot;);</a>
+<a name="ln1727">    unibi_set_if_empty(ut, unibi_exit_italics_mode, &quot;\x1b[23m&quot;);</a>
+<a name="ln1728">  } else if (terminfo_is_term_family(term, &quot;interix&quot;)) {</a>
+<a name="ln1729">    // 2017-04 terminfo.src lacks this.</a>
+<a name="ln1730">    unibi_set_if_empty(ut, unibi_carriage_return, &quot;\x0d&quot;);</a>
+<a name="ln1731">  } else if (linuxvt) {</a>
+<a name="ln1732">    unibi_set_if_empty(ut, unibi_parm_up_cursor, &quot;\x1b[%p1%dA&quot;);</a>
+<a name="ln1733">    unibi_set_if_empty(ut, unibi_parm_down_cursor, &quot;\x1b[%p1%dB&quot;);</a>
+<a name="ln1734">    unibi_set_if_empty(ut, unibi_parm_right_cursor, &quot;\x1b[%p1%dC&quot;);</a>
+<a name="ln1735">    unibi_set_if_empty(ut, unibi_parm_left_cursor, &quot;\x1b[%p1%dD&quot;);</a>
+<a name="ln1736">  } else if (putty) {</a>
+<a name="ln1737">    // No bugs in the vanilla terminfo for our purposes.</a>
+<a name="ln1738">  } else if (iterm) {</a>
+<a name="ln1739">    // 2017-04 terminfo.src has older control sequences.</a>
+<a name="ln1740">    unibi_set_str(ut, unibi_enter_ca_mode, &quot;\x1b[?1049h&quot;);</a>
+<a name="ln1741">    unibi_set_str(ut, unibi_exit_ca_mode, &quot;\x1b[?1049l&quot;);</a>
+<a name="ln1742">    // 2017-04 terminfo.src lacks these.</a>
+<a name="ln1743">    unibi_set_if_empty(ut, unibi_set_tb_margin, &quot;\x1b[%i%p1%d;%p2%dr&quot;);</a>
+<a name="ln1744">    unibi_set_if_empty(ut, unibi_orig_pair, &quot;\x1b[39;49m&quot;);</a>
+<a name="ln1745">    unibi_set_if_empty(ut, unibi_enter_dim_mode, &quot;\x1b[2m&quot;);</a>
+<a name="ln1746">    unibi_set_if_empty(ut, unibi_enter_italics_mode, &quot;\x1b[3m&quot;);</a>
+<a name="ln1747">    unibi_set_if_empty(ut, unibi_exit_italics_mode, &quot;\x1b[23m&quot;);</a>
+<a name="ln1748">    unibi_set_if_empty(ut, unibi_exit_underline_mode, &quot;\x1b[24m&quot;);</a>
+<a name="ln1749">    unibi_set_if_empty(ut, unibi_exit_standout_mode, &quot;\x1b[27m&quot;);</a>
+<a name="ln1750">  } else if (st) {</a>
+<a name="ln1751">    // No bugs in the vanilla terminfo for our purposes.</a>
+<a name="ln1752">  }</a>
+<a name="ln1753"> </a>
+<a name="ln1754">// At this time (2017-07-12) it seems like all terminals that support 256</a>
+<a name="ln1755">// color codes can use semicolons in the terminal code and be fine.</a>
+<a name="ln1756">// However, this is not correct according to the spec. So to reward those</a>
+<a name="ln1757">// terminals that also support colons, we output the code that way on these</a>
+<a name="ln1758">// specific ones.</a>
+<a name="ln1759"> </a>
+<a name="ln1760">// using colons like ISO 8613-6:1994/ITU T.416:1993 says.</a>
+<a name="ln1761">#define XTERM_SETAF_256_COLON \</a>
+<a name="ln1762">  &quot;\x1b[%?%p1%{8}%&lt;%t3%p1%d%e%p1%{16}%&lt;%t9%p1%{8}%-%d%e38:5:%p1%d%;m&quot;</a>
+<a name="ln1763">#define XTERM_SETAB_256_COLON \</a>
+<a name="ln1764">  &quot;\x1b[%?%p1%{8}%&lt;%t4%p1%d%e%p1%{16}%&lt;%t10%p1%{8}%-%d%e48:5:%p1%d%;m&quot;</a>
+<a name="ln1765"> </a>
+<a name="ln1766">#define XTERM_SETAF_256 \</a>
+<a name="ln1767">  &quot;\x1b[%?%p1%{8}%&lt;%t3%p1%d%e%p1%{16}%&lt;%t9%p1%{8}%-%d%e38;5;%p1%d%;m&quot;</a>
+<a name="ln1768">#define XTERM_SETAB_256 \</a>
+<a name="ln1769">  &quot;\x1b[%?%p1%{8}%&lt;%t4%p1%d%e%p1%{16}%&lt;%t10%p1%{8}%-%d%e48;5;%p1%d%;m&quot;</a>
+<a name="ln1770">#define XTERM_SETAF_16 \</a>
+<a name="ln1771">  &quot;\x1b[%?%p1%{8}%&lt;%t3%p1%d%e%p1%{16}%&lt;%t9%p1%{8}%-%d%e39%;m&quot;</a>
+<a name="ln1772">#define XTERM_SETAB_16 \</a>
+<a name="ln1773">  &quot;\x1b[%?%p1%{8}%&lt;%t4%p1%d%e%p1%{16}%&lt;%t10%p1%{8}%-%d%e39%;m&quot;</a>
+<a name="ln1774"> </a>
+<a name="ln1775">  data-&gt;unibi_ext.get_bg = (int)unibi_add_ext_str(ut, &quot;ext.get_bg&quot;,</a>
+<a name="ln1776">                                                  &quot;\x1b]11;?\x07&quot;);</a>
+<a name="ln1777"> </a>
+<a name="ln1778">  // Terminals with 256-colour SGR support despite what terminfo says.</a>
+<a name="ln1779">  if (unibi_get_num(ut, unibi_max_colors) &lt; 256) {</a>
+<a name="ln1780">    // See http://fedoraproject.org/wiki/Features/256_Color_Terminals</a>
+<a name="ln1781">    if (true_xterm || iterm || iterm_pretending_xterm) {</a>
+<a name="ln1782">      unibi_set_num(ut, unibi_max_colors, 256);</a>
+<a name="ln1783">      unibi_set_str(ut, unibi_set_a_foreground, XTERM_SETAF_256_COLON);</a>
+<a name="ln1784">      unibi_set_str(ut, unibi_set_a_background, XTERM_SETAB_256_COLON);</a>
+<a name="ln1785">    } else if (konsolev || xterm || gnome || rxvt || st || putty</a>
+<a name="ln1786">               || linuxvt  // Linux 4.8+ supports 256-colour SGR.</a>
+<a name="ln1787">               || mate_pretending_xterm || gnome_pretending_xterm</a>
+<a name="ln1788">               || tmux</a>
+<a name="ln1789">               || (colorterm &amp;&amp; strstr(colorterm, &quot;256&quot;))</a>
+<a name="ln1790">               || (term &amp;&amp; strstr(term, &quot;256&quot;))) {</a>
+<a name="ln1791">      unibi_set_num(ut, unibi_max_colors, 256);</a>
+<a name="ln1792">      unibi_set_str(ut, unibi_set_a_foreground, XTERM_SETAF_256);</a>
+<a name="ln1793">      unibi_set_str(ut, unibi_set_a_background, XTERM_SETAB_256);</a>
+<a name="ln1794">    }</a>
+<a name="ln1795">  }</a>
+<a name="ln1796">  // Terminals with 16-colour SGR support despite what terminfo says.</a>
+<a name="ln1797">  if (unibi_get_num(ut, unibi_max_colors) &lt; 16) {</a>
+<a name="ln1798">    if (colorterm) {</a>
+<a name="ln1799">      unibi_set_num(ut, unibi_max_colors, 16);</a>
+<a name="ln1800">      unibi_set_if_empty(ut, unibi_set_a_foreground, XTERM_SETAF_16);</a>
+<a name="ln1801">      unibi_set_if_empty(ut, unibi_set_a_background, XTERM_SETAB_16);</a>
+<a name="ln1802">    }</a>
+<a name="ln1803">  }</a>
+<a name="ln1804"> </a>
+<a name="ln1805">  // Blacklist of terminals that cannot be trusted to report DECSCUSR support.</a>
+<a name="ln1806">  if (!(st || (vte_version != 0 &amp;&amp; vte_version &lt; 3900) || konsolev)) {</a>
+<a name="ln1807">    data-&gt;unibi_ext.reset_cursor_style = unibi_find_ext_str(ut, &quot;Se&quot;);</a>
+<a name="ln1808">    data-&gt;unibi_ext.set_cursor_style = unibi_find_ext_str(ut, &quot;Ss&quot;);</a>
+<a name="ln1809">  }</a>
+<a name="ln1810"> </a>
+<a name="ln1811">  // Dickey ncurses terminfo includes Ss/Se capabilities since 2011-07-14. So</a>
+<a name="ln1812">  // adding them to terminal types, that have such control sequences but lack</a>
+<a name="ln1813">  // the correct terminfo entries, is a fixup, not an augmentation.</a>
+<a name="ln1814">  if (-1 == data-&gt;unibi_ext.set_cursor_style) {</a>
+<a name="ln1815">    // DECSCUSR (cursor shape) is widely supported.</a>
+<a name="ln1816">    // https://github.com/gnachman/iTerm2/pull/92</a>
+<a name="ln1817">    if ((!bsdvt &amp;&amp; (!konsolev || konsolev &gt;= 180770))</a>
+<a name="ln1818">        &amp;&amp; ((xterm &amp;&amp; !vte_version)  // anything claiming xterm compat</a>
+<a name="ln1819">            // per MinTTY 0.4.3-1 release notes from 2009</a>
+<a name="ln1820">            || putty</a>
+<a name="ln1821">            // per https://bugzilla.gnome.org/show_bug.cgi?id=720821</a>
+<a name="ln1822">            || (vte_version &gt;= 3900)</a>
+<a name="ln1823">            || (konsolev &gt;= 180770)  // #9364</a>
+<a name="ln1824">            || tmux       // per tmux manual page</a>
+<a name="ln1825">            // https://lists.gnu.org/archive/html/screen-devel/2013-03/msg00000.html</a>
+<a name="ln1826">            || screen</a>
+<a name="ln1827">            || st         // #7641</a>
+<a name="ln1828">            || rxvt       // per command.C</a>
+<a name="ln1829">            // per analysis of VT100Terminal.m</a>
+<a name="ln1830">            || iterm || iterm_pretending_xterm</a>
+<a name="ln1831">            || teraterm   // per TeraTerm &quot;Supported Control Functions&quot; doco</a>
+<a name="ln1832">            || alacritty  // https://github.com/jwilm/alacritty/pull/608</a>
+<a name="ln1833">            || cygwin</a>
+<a name="ln1834">            // Some linux-type terminals implement the xterm extension.</a>
+<a name="ln1835">            // Example: console-terminal-emulator from the nosh toolset.</a>
+<a name="ln1836">            || (linuxvt</a>
+<a name="ln1837">                &amp;&amp; (xterm_version || (vte_version &gt; 0) || colorterm)))) {</a>
+<a name="ln1838">      data-&gt;unibi_ext.set_cursor_style =</a>
+<a name="ln1839">        (int)unibi_add_ext_str(ut, &quot;Ss&quot;, &quot;\x1b[%p1%d q&quot;);</a>
+<a name="ln1840">      if (-1 == data-&gt;unibi_ext.reset_cursor_style) {</a>
+<a name="ln1841">          data-&gt;unibi_ext.reset_cursor_style = (int)unibi_add_ext_str(ut, &quot;Se&quot;,</a>
+<a name="ln1842">                                                                      &quot;&quot;);</a>
+<a name="ln1843">      }</a>
+<a name="ln1844">      unibi_set_ext_str(ut, (size_t)data-&gt;unibi_ext.reset_cursor_style,</a>
+<a name="ln1845">                        &quot;\x1b[ q&quot;);</a>
+<a name="ln1846">    } else if (linuxvt) {</a>
+<a name="ln1847">      // Linux uses an idiosyncratic escape code to set the cursor shape and</a>
+<a name="ln1848">      // does not support DECSCUSR.</a>
+<a name="ln1849">      // See http://linuxgazette.net/137/anonymous.html for more info</a>
+<a name="ln1850">      data-&gt;unibi_ext.set_cursor_style = (int)unibi_add_ext_str(ut, &quot;Ss&quot;,</a>
+<a name="ln1851">          &quot;\x1b[?&quot;</a>
+<a name="ln1852">          &quot;%?&quot;</a>
+<a name="ln1853">          // The parameter passed to Ss is the DECSCUSR parameter, so the</a>
+<a name="ln1854">          // terminal capability has to translate into the Linux idiosyncratic</a>
+<a name="ln1855">          // parameter.</a>
+<a name="ln1856">          //</a>
+<a name="ln1857">          // linuxvt only supports block and underline. It is also only</a>
+<a name="ln1858">          // possible to have a steady block (no steady underline)</a>
+<a name="ln1859">          &quot;%p1%{2}%&lt;&quot; &quot;%t%{8}&quot;       // blink block</a>
+<a name="ln1860">          &quot;%e%p1%{2}%=&quot; &quot;%t%{112}&quot;   // steady block</a>
+<a name="ln1861">          &quot;%e%p1%{3}%=&quot; &quot;%t%{4}&quot;     // blink underline (set to half block)</a>
+<a name="ln1862">          &quot;%e%p1%{4}%=&quot; &quot;%t%{4}&quot;     // steady underline</a>
+<a name="ln1863">          &quot;%e%p1%{5}%=&quot; &quot;%t%{2}&quot;     // blink bar (set to underline)</a>
+<a name="ln1864">          &quot;%e%p1%{6}%=&quot; &quot;%t%{2}&quot;     // steady bar</a>
+<a name="ln1865">          &quot;%e%{0}&quot;                   // anything else</a>
+<a name="ln1866">          &quot;%;&quot; &quot;%dc&quot;);</a>
+<a name="ln1867">      if (-1 == data-&gt;unibi_ext.reset_cursor_style) {</a>
+<a name="ln1868">          data-&gt;unibi_ext.reset_cursor_style = (int)unibi_add_ext_str(ut, &quot;Se&quot;,</a>
+<a name="ln1869">                                                                      &quot;&quot;);</a>
+<a name="ln1870">      }</a>
+<a name="ln1871">      unibi_set_ext_str(ut, (size_t)data-&gt;unibi_ext.reset_cursor_style,</a>
+<a name="ln1872">                        &quot;\x1b[?c&quot;);</a>
+<a name="ln1873">    } else if (konsolev &gt; 0 &amp;&amp; konsolev &lt; 180770) {</a>
+<a name="ln1874">      // Konsole before version 18.07.70: set up a nonce profile. This has</a>
+<a name="ln1875">      // side-effects on temporary font resizing. #6798</a>
+<a name="ln1876">      data-&gt;unibi_ext.set_cursor_style = (int)unibi_add_ext_str(ut, &quot;Ss&quot;,</a>
+<a name="ln1877">          TMUX_WRAP(tmux, &quot;\x1b]50;CursorShape=%?&quot;</a>
+<a name="ln1878">          &quot;%p1%{3}%&lt;&quot; &quot;%t%{0}&quot;    // block</a>
+<a name="ln1879">          &quot;%e%p1%{5}%&lt;&quot; &quot;%t%{2}&quot;  // underline</a>
+<a name="ln1880">          &quot;%e%{1}&quot;                // everything else is bar</a>
+<a name="ln1881">          &quot;%;%d;BlinkingCursorEnabled=%?&quot;</a>
+<a name="ln1882">          &quot;%p1%{1}%&lt;&quot; &quot;%t%{1}&quot;  // Fortunately if we exclude zero as special,</a>
+<a name="ln1883">          &quot;%e%p1%{1}%&amp;&quot;  // in all other cases we can treat bit #0 as a flag.</a>
+<a name="ln1884">          &quot;%;%d\x07&quot;));</a>
+<a name="ln1885">      if (-1 == data-&gt;unibi_ext.reset_cursor_style) {</a>
+<a name="ln1886">          data-&gt;unibi_ext.reset_cursor_style = (int)unibi_add_ext_str(ut, &quot;Se&quot;,</a>
+<a name="ln1887">                                                                      &quot;&quot;);</a>
+<a name="ln1888">      }</a>
+<a name="ln1889">      unibi_set_ext_str(ut, (size_t)data-&gt;unibi_ext.reset_cursor_style,</a>
+<a name="ln1890">          &quot;\x1b]50;\x07&quot;);</a>
+<a name="ln1891">    }</a>
+<a name="ln1892">  }</a>
+<a name="ln1893">}</a>
+<a name="ln1894"> </a>
+<a name="ln1895">/// This adds stuff that is not in standard terminfo as extended unibilium</a>
+<a name="ln1896">/// capabilities.</a>
+<a name="ln1897">static void augment_terminfo(TUIData *data, const char *term,</a>
+<a name="ln1898">                             long vte_version,</a>
+<a name="ln1899">                             long konsolev, bool iterm_env, bool nsterm)</a>
+<a name="ln1900">{</a>
+<a name="ln1901">  unibi_term *ut = data-&gt;ut;</a>
+<a name="ln1902">  bool xterm = terminfo_is_term_family(term, &quot;xterm&quot;)</a>
+<a name="ln1903">    // Treat Terminal.app as generic xterm-like, for now.</a>
+<a name="ln1904">    || nsterm;</a>
+<a name="ln1905">  bool bsdvt = terminfo_is_bsd_console(term);</a>
+<a name="ln1906">  bool dtterm = terminfo_is_term_family(term, &quot;dtterm&quot;);</a>
+<a name="ln1907">  bool rxvt = terminfo_is_term_family(term, &quot;rxvt&quot;);</a>
+<a name="ln1908">  bool teraterm = terminfo_is_term_family(term, &quot;teraterm&quot;);</a>
+<a name="ln1909">  bool putty = terminfo_is_term_family(term, &quot;putty&quot;);</a>
+<a name="ln1910">  bool screen = terminfo_is_term_family(term, &quot;screen&quot;);</a>
+<a name="ln1911">  bool tmux = terminfo_is_term_family(term, &quot;tmux&quot;) || !!os_getenv(&quot;TMUX&quot;);</a>
+<a name="ln1912">  bool iterm = terminfo_is_term_family(term, &quot;iterm&quot;)</a>
+<a name="ln1913">    || terminfo_is_term_family(term, &quot;iterm2&quot;)</a>
+<a name="ln1914">    || terminfo_is_term_family(term, &quot;iTerm.app&quot;)</a>
+<a name="ln1915">    || terminfo_is_term_family(term, &quot;iTerm2.app&quot;);</a>
+<a name="ln1916">  bool alacritty = terminfo_is_term_family(term, &quot;alacritty&quot;);</a>
+<a name="ln1917">  // None of the following work over SSH; see :help TERM .</a>
+<a name="ln1918">  bool iterm_pretending_xterm = xterm &amp;&amp; iterm_env;</a>
+<a name="ln1919"> </a>
+<a name="ln1920">  const char *xterm_version = os_getenv(&quot;XTERM_VERSION&quot;);</a>
+<a name="ln1921">  bool true_xterm = xterm &amp;&amp; !!xterm_version &amp;&amp; !bsdvt;</a>
+<a name="ln1922"> </a>
+<a name="ln1923">  // Only define this capability for terminal types that we know understand it.</a>
+<a name="ln1924">  if (dtterm         // originated this extension</a>
+<a name="ln1925">      || xterm       // per xterm ctlseqs doco</a>
+<a name="ln1926">      || konsolev    // per commentary in VT102Emulation.cpp</a>
+<a name="ln1927">      || teraterm    // per TeraTerm &quot;Supported Control Functions&quot; doco</a>
+<a name="ln1928">      || rxvt) {     // per command.C</a>
+<a name="ln1929">    data-&gt;unibi_ext.resize_screen = (int)unibi_add_ext_str(ut,</a>
+<a name="ln1930">      &quot;ext.resize_screen&quot;,</a>
+<a name="ln1931">      &quot;\x1b[8;%p1%d;%p2%dt&quot;);</a>
+<a name="ln1932">  }</a>
+<a name="ln1933">  if (putty || xterm || rxvt) {</a>
+<a name="ln1934">    data-&gt;unibi_ext.reset_scroll_region = (int)unibi_add_ext_str(ut,</a>
+<a name="ln1935">      &quot;ext.reset_scroll_region&quot;,</a>
+<a name="ln1936">      &quot;\x1b[r&quot;);</a>
+<a name="ln1937">  }</a>
+<a name="ln1938"> </a>
+<a name="ln1939">  // terminfo describes strikethrough modes as rmxx/smxx with respect</a>
+<a name="ln1940">  // to the ECMA-48 strikeout/crossed-out attributes.</a>
+<a name="ln1941">  data-&gt;unibi_ext.enter_strikethrough_mode = (int)unibi_find_ext_str(</a>
+<a name="ln1942">      ut, &quot;smxx&quot;);</a>
+<a name="ln1943"> </a>
+<a name="ln1944">  // Dickey ncurses terminfo does not include the setrgbf and setrgbb</a>
+<a name="ln1945">  // capabilities, proposed by Rüdiger Sonderfeld on 2013-10-15.  Adding</a>
+<a name="ln1946">  // them here when terminfo lacks them is an augmentation, not a fixup.</a>
+<a name="ln1947">  // https://gist.github.com/XVilka/8346728</a>
+<a name="ln1948"> </a>
+<a name="ln1949">  // At this time (2017-07-12) it seems like all terminals that support rgb</a>
+<a name="ln1950">  // color codes can use semicolons in the terminal code and be fine.</a>
+<a name="ln1951">  // However, this is not correct according to the spec. So to reward those</a>
+<a name="ln1952">  // terminals that also support colons, we output the code that way on these</a>
+<a name="ln1953">  // specific ones.</a>
+<a name="ln1954"> </a>
+<a name="ln1955">  // can use colons like ISO 8613-6:1994/ITU T.416:1993 says.</a>
+<a name="ln1956">  bool has_colon_rgb = !tmux &amp;&amp; !screen</a>
+<a name="ln1957">    &amp;&amp; !vte_version  // VTE colon-support has a big memory leak. #7573</a>
+<a name="ln1958">    &amp;&amp; (iterm || iterm_pretending_xterm  // per VT100Terminal.m</a>
+<a name="ln1959">        // per http://invisible-island.net/xterm/xterm.log.html#xterm_282</a>
+<a name="ln1960">        || true_xterm);</a>
+<a name="ln1961"> </a>
+<a name="ln1962">  data-&gt;unibi_ext.set_rgb_foreground = unibi_find_ext_str(ut, &quot;setrgbf&quot;);</a>
+<a name="ln1963">  if (-1 == data-&gt;unibi_ext.set_rgb_foreground) {</a>
+<a name="ln1964">    if (has_colon_rgb) {</a>
+<a name="ln1965">      data-&gt;unibi_ext.set_rgb_foreground = (int)unibi_add_ext_str(ut, &quot;setrgbf&quot;,</a>
+<a name="ln1966">          &quot;\x1b[38:2:%p1%d:%p2%d:%p3%dm&quot;);</a>
+<a name="ln1967">    } else {</a>
+<a name="ln1968">      data-&gt;unibi_ext.set_rgb_foreground = (int)unibi_add_ext_str(ut, &quot;setrgbf&quot;,</a>
+<a name="ln1969">          &quot;\x1b[38;2;%p1%d;%p2%d;%p3%dm&quot;);</a>
+<a name="ln1970">    }</a>
+<a name="ln1971">  }</a>
+<a name="ln1972">  data-&gt;unibi_ext.set_rgb_background = unibi_find_ext_str(ut, &quot;setrgbb&quot;);</a>
+<a name="ln1973">  if (-1 == data-&gt;unibi_ext.set_rgb_background) {</a>
+<a name="ln1974">    if (has_colon_rgb) {</a>
+<a name="ln1975">      data-&gt;unibi_ext.set_rgb_background = (int)unibi_add_ext_str(ut, &quot;setrgbb&quot;,</a>
+<a name="ln1976">          &quot;\x1b[48:2:%p1%d:%p2%d:%p3%dm&quot;);</a>
+<a name="ln1977">    } else {</a>
+<a name="ln1978">      data-&gt;unibi_ext.set_rgb_background = (int)unibi_add_ext_str(ut, &quot;setrgbb&quot;,</a>
+<a name="ln1979">          &quot;\x1b[48;2;%p1%d;%p2%d;%p3%dm&quot;);</a>
+<a name="ln1980">    }</a>
+<a name="ln1981">  }</a>
+<a name="ln1982"> </a>
+<a name="ln1983">  if (iterm || iterm_pretending_xterm) {</a>
+<a name="ln1984">    // FIXME: Bypassing tmux like this affects the cursor colour globally, in</a>
+<a name="ln1985">    // all panes, which is not particularly desirable.  A better approach</a>
+<a name="ln1986">    // would use a tmux control sequence and an extra if(screen) test.</a>
+<a name="ln1987">    data-&gt;unibi_ext.set_cursor_color = (int)unibi_add_ext_str(</a>
+<a name="ln1988">        ut, NULL, TMUX_WRAP(tmux, &quot;\033]Pl%p1%06x\033\\&quot;));</a>
+<a name="ln1989">  } else if ((xterm || rxvt || tmux || alacritty)</a>
+<a name="ln1990">             &amp;&amp; (vte_version == 0 || vte_version &gt;= 3900)) {</a>
+<a name="ln1991">    // Supported in urxvt, newer VTE.</a>
+<a name="ln1992">    data-&gt;unibi_ext.set_cursor_color = (int)unibi_add_ext_str(</a>
+<a name="ln1993">        ut, &quot;ext.set_cursor_color&quot;, &quot;\033]12;#%p1%06x\007&quot;);</a>
+<a name="ln1994">  }</a>
+<a name="ln1995"> </a>
+<a name="ln1996">  if (-1 != data-&gt;unibi_ext.set_cursor_color) {</a>
+<a name="ln1997">    data-&gt;unibi_ext.reset_cursor_color = (int)unibi_add_ext_str(</a>
+<a name="ln1998">        ut, &quot;ext.reset_cursor_color&quot;, &quot;\x1b]112\x07&quot;);</a>
+<a name="ln1999">  }</a>
+<a name="ln2000"> </a>
+<a name="ln2001">  data-&gt;unibi_ext.save_title = (int)unibi_add_ext_str(</a>
+<a name="ln2002">      ut, &quot;ext.save_title&quot;, &quot;\x1b[22;0;0t&quot;);</a>
+<a name="ln2003">  data-&gt;unibi_ext.restore_title = (int)unibi_add_ext_str(</a>
+<a name="ln2004">      ut, &quot;ext.restore_title&quot;, &quot;\x1b[23;0;0t&quot;);</a>
+<a name="ln2005"> </a>
+<a name="ln2006">  /// Terminals usually ignore unrecognized private modes, and there is no</a>
+<a name="ln2007">  /// known ambiguity with these. So we just set them unconditionally.</a>
+<a name="ln2008">  data-&gt;unibi_ext.enable_lr_margin = (int)unibi_add_ext_str(</a>
+<a name="ln2009">      ut, &quot;ext.enable_lr_margin&quot;, &quot;\x1b[?69h&quot;);</a>
+<a name="ln2010">  data-&gt;unibi_ext.disable_lr_margin = (int)unibi_add_ext_str(</a>
+<a name="ln2011">      ut, &quot;ext.disable_lr_margin&quot;, &quot;\x1b[?69l&quot;);</a>
+<a name="ln2012">  data-&gt;unibi_ext.enable_bracketed_paste = (int)unibi_add_ext_str(</a>
+<a name="ln2013">      ut, &quot;ext.enable_bpaste&quot;, &quot;\x1b[?2004h&quot;);</a>
+<a name="ln2014">  data-&gt;unibi_ext.disable_bracketed_paste = (int)unibi_add_ext_str(</a>
+<a name="ln2015">      ut, &quot;ext.disable_bpaste&quot;, &quot;\x1b[?2004l&quot;);</a>
+<a name="ln2016">  // For urxvt send BOTH xterm and old urxvt sequences. #8695</a>
+<a name="ln2017">  data-&gt;unibi_ext.enable_focus_reporting = (int)unibi_add_ext_str(</a>
+<a name="ln2018">      ut, &quot;ext.enable_focus&quot;,</a>
+<a name="ln2019">      rxvt ? &quot;\x1b[?1004h\x1b]777;focus;on\x7&quot; : &quot;\x1b[?1004h&quot;);</a>
+<a name="ln2020">  data-&gt;unibi_ext.disable_focus_reporting = (int)unibi_add_ext_str(</a>
+<a name="ln2021">      ut, &quot;ext.disable_focus&quot;,</a>
+<a name="ln2022">      rxvt ? &quot;\x1b[?1004l\x1b]777;focus;off\x7&quot; : &quot;\x1b[?1004l&quot;);</a>
+<a name="ln2023">  data-&gt;unibi_ext.enable_mouse = (int)unibi_add_ext_str(</a>
+<a name="ln2024">      ut, &quot;ext.enable_mouse&quot;, &quot;\x1b[?1002h\x1b[?1006h&quot;);</a>
+<a name="ln2025">  data-&gt;unibi_ext.disable_mouse = (int)unibi_add_ext_str(</a>
+<a name="ln2026">      ut, &quot;ext.disable_mouse&quot;, &quot;\x1b[?1002l\x1b[?1006l&quot;);</a>
+<a name="ln2027"> </a>
+<a name="ln2028">  // Extended underline.</a>
+<a name="ln2029">  // terminfo will have Smulx for this (but no support for colors yet).</a>
+<a name="ln2030">  data-&gt;unibi_ext.set_underline_style = unibi_find_ext_str(ut, &quot;Smulx&quot;);</a>
+<a name="ln2031">  if (data-&gt;unibi_ext.set_underline_style == -1) {</a>
+<a name="ln2032">      int ext_bool_Su = unibi_find_ext_bool(ut, &quot;Su&quot;);  // used by kitty</a>
+<a name="ln2033">      if (vte_version &gt;= 5102</a>
+<a name="ln2034">          || (ext_bool_Su != -1</a>
+<a name="ln2035">              &amp;&amp; unibi_get_ext_bool(ut, (size_t)ext_bool_Su))) {</a>
+<a name="ln2036">          data-&gt;unibi_ext.set_underline_style = (int)unibi_add_ext_str(</a>
+<a name="ln2037">              ut, &quot;ext.set_underline_style&quot;, &quot;\x1b[4:%p1%dm&quot;);</a>
+<a name="ln2038">      }</a>
+<a name="ln2039">  }</a>
+<a name="ln2040">  if (data-&gt;unibi_ext.set_underline_style != -1) {</a>
+<a name="ln2041">      // Only support colon syntax. #9270</a>
+<a name="ln2042">      data-&gt;unibi_ext.set_underline_color = (int)unibi_add_ext_str(</a>
+<a name="ln2043">          ut, &quot;ext.set_underline_color&quot;, &quot;\x1b[58:2::%p1%d:%p2%d:%p3%dm&quot;);</a>
+<a name="ln2044">  }</a>
+<a name="ln2045">}</a>
+<a name="ln2046"> </a>
+<a name="ln2047">static void flush_buf(UI *ui)</a>
+<a name="ln2048">{</a>
+<a name="ln2049">  uv_write_t req;</a>
+<a name="ln2050">  uv_buf_t bufs[3];</a>
+<a name="ln2051">  uv_buf_t *bufp = &amp;bufs[0];</a>
+<a name="ln2052">  TUIData *data = ui-&gt;data;</a>
+<a name="ln2053"> </a>
+<a name="ln2054">  // The content of the output for each condition is shown in the following</a>
+<a name="ln2055">  // table. Therefore, if data-&gt;bufpos == 0 and N/A or invis + norm, there is</a>
+<a name="ln2056">  // no need to output it.</a>
+<a name="ln2057">  //</a>
+<a name="ln2058">  //                         | is_invisible | !is_invisible</a>
+<a name="ln2059">  // ------+-----------------+--------------+---------------</a>
+<a name="ln2060">  // busy  | want_invisible  |     N/A      |    invis</a>
+<a name="ln2061">  //       | !want_invisible |     N/A      |    invis</a>
+<a name="ln2062">  // ------+-----------------+--------------+---------------</a>
+<a name="ln2063">  // !busy | want_invisible  |     N/A      |    invis</a>
+<a name="ln2064">  //       | !want_invisible |     norm     | invis + norm</a>
+<a name="ln2065">  // ------+-----------------+--------------+---------------</a>
+<a name="ln2066">  //</a>
+<a name="ln2067">  if (data-&gt;bufpos &lt;= 0</a>
+<a name="ln2068">      &amp;&amp; ((data-&gt;is_invisible &amp;&amp; data-&gt;busy)</a>
+<a name="ln2069">          || (data-&gt;is_invisible &amp;&amp; !data-&gt;busy &amp;&amp; data-&gt;want_invisible)</a>
+<a name="ln2070">          || (!data-&gt;is_invisible &amp;&amp; !data-&gt;busy &amp;&amp; !data-&gt;want_invisible))) {</a>
+<a name="ln2071">    return;</a>
+<a name="ln2072">  }</a>
+<a name="ln2073"> </a>
+<a name="ln2074">  if (!data-&gt;is_invisible) {</a>
+<a name="ln2075">    // cursor is visible. Write a &quot;cursor invisible&quot; command before writing the</a>
+<a name="ln2076">    // buffer.</a>
+<a name="ln2077">    bufp-&gt;base = data-&gt;invis;</a>
+<a name="ln2078">    bufp-&gt;len = UV_BUF_LEN(data-&gt;invislen);</a>
+<a name="ln2079">    bufp++;</a>
+<a name="ln2080">    data-&gt;is_invisible = true;</a>
+<a name="ln2081">  }</a>
+<a name="ln2082"> </a>
+<a name="ln2083">  if (data-&gt;bufpos &gt; 0) {</a>
+<a name="ln2084">    bufp-&gt;base = data-&gt;buf;</a>
+<a name="ln2085">    bufp-&gt;len = UV_BUF_LEN(data-&gt;bufpos);</a>
+<a name="ln2086">    bufp++;</a>
+<a name="ln2087">  }</a>
+<a name="ln2088"> </a>
+<a name="ln2089">  if (!data-&gt;busy) {</a>
+<a name="ln2090">    assert(data-&gt;is_invisible);</a>
+<a name="ln2091">    // not busy and the cursor is invisible. Write a &quot;cursor normal&quot; command</a>
+<a name="ln2092">    // after writing the buffer.</a>
+<a name="ln2093">    if (!data-&gt;want_invisible) {</a>
+<a name="ln2094">      bufp-&gt;base = data-&gt;norm;</a>
+<a name="ln2095">      bufp-&gt;len = UV_BUF_LEN(data-&gt;normlen);</a>
+<a name="ln2096">      bufp++;</a>
+<a name="ln2097">      data-&gt;is_invisible = false;</a>
+<a name="ln2098">    }</a>
+<a name="ln2099">  }</a>
+<a name="ln2100"> </a>
+<a name="ln2101">  if (data-&gt;screenshot) {</a>
+<a name="ln2102">    for (size_t i = 0; i &lt; (size_t)(bufp - bufs); i++) {</a>
+<a name="ln2103">      fwrite(bufs[i].base, bufs[i].len, 1, data-&gt;screenshot);</a>
+<a name="ln2104">    }</a>
+<a name="ln2105">  } else {</a>
+<a name="ln2106">    uv_write(&amp;req, STRUCT_CAST(uv_stream_t, &amp;data-&gt;output_handle),</a>
+<a name="ln2107">             bufs, (unsigned)(bufp - bufs), NULL);</a>
+<a name="ln2108">    uv_run(&amp;data-&gt;write_loop, UV_RUN_DEFAULT);</a>
+<a name="ln2109">  }</a>
+<a name="ln2110">  data-&gt;bufpos = 0;</a>
+<a name="ln2111">  data-&gt;overflow = false;</a>
+<a name="ln2112">}</a>
+<a name="ln2113"> </a>
+<a name="ln2114">#if TERMKEY_VERSION_MAJOR &gt; 0 || TERMKEY_VERSION_MINOR &gt; 18</a>
+<a name="ln2115">/// Try to get &quot;kbs&quot; code from stty because &quot;the terminfo kbs entry is extremely</a>
+<a name="ln2116">/// unreliable.&quot; (Vim, Bash, and tmux also do this.)</a>
+<a name="ln2117">///</a>
+<a name="ln2118">/// @see tmux/tty-keys.c fe4e9470bb504357d073320f5d305b22663ee3fd</a>
+<a name="ln2119">/// @see https://bugzilla.redhat.com/show_bug.cgi?id=142659</a>
+<a name="ln2120">static const char *tui_get_stty_erase(void)</a>
+<a name="ln2121">{</a>
+<a name="ln2122">  static char stty_erase[2] = { 0 };</a>
+<a name="ln2123">#if defined(HAVE_TERMIOS_H)</a>
+<a name="ln2124">  struct termios t;</a>
+<a name="ln2125">  if (tcgetattr(input_global_fd(), &amp;t) != -1) {</a>
+<a name="ln2126">    stty_erase[0] = (char)t.c_cc[VERASE];</a>
+<a name="ln2127">    stty_erase[1] = '\0';</a>
+<a name="ln2128">    DLOG(&quot;stty/termios:erase=%s&quot;, stty_erase);</a>
+<a name="ln2129">  }</a>
+<a name="ln2130">#endif</a>
+<a name="ln2131">  return stty_erase;</a>
+<a name="ln2132">}</a>
+<a name="ln2133"> </a>
+<a name="ln2134">/// libtermkey hook to override terminfo entries.</a>
+<a name="ln2135">/// @see TermInput.tk_ti_hook_fn</a>
+<a name="ln2136">static const char *tui_tk_ti_getstr(const char *name, const char *value,</a>
+<a name="ln2137">                                    void *data)</a>
+<a name="ln2138">{</a>
+<a name="ln2139">  static const char *stty_erase = NULL;</a>
+<a name="ln2140">  if (stty_erase == NULL) {</a>
+<a name="ln2141">    stty_erase = tui_get_stty_erase();</a>
+<a name="ln2142">  }</a>
+<a name="ln2143"> </a>
+<a name="ln2144">  if (strequal(name, &quot;key_backspace&quot;)) {</a>
+<a name="ln2145">    DLOG(&quot;libtermkey:kbs=%s&quot;, value);</a>
+<a name="ln2146">    if (stty_erase[0] != 0) {</a>
+<a name="ln2147">      return stty_erase;</a>
+<a name="ln2148">    }</a>
+<a name="ln2149">  } else if (strequal(name, &quot;key_dc&quot;)) {</a>
+<a name="ln2150">    DLOG(&quot;libtermkey:kdch1=%s&quot;, value);</a>
+<a name="ln2151">    // Vim: &quot;If &lt;BS&gt; and &lt;DEL&gt; are now the same, redefine &lt;DEL&gt;.&quot;</a>
+<a name="ln2152">    if (value != NULL &amp;&amp; value != (char *)-1 &amp;&amp; strequal(stty_erase, value)) {</a>
+<a name="ln2153">      return stty_erase[0] == DEL ? CTRL_H_STR : DEL_STR;</a>
+<a name="ln2154">    }</a>
+<a name="ln2155">  } else if (strequal(name, &quot;key_mouse&quot;)) {</a>
+<a name="ln2156">    DLOG(&quot;libtermkey:kmous=%s&quot;, value);</a>
+<a name="ln2157">    // If key_mouse is found, libtermkey uses its terminfo driver (driver-ti.c)</a>
+<a name="ln2158">    // for mouse input, which by accident only supports X10 protocol.</a>
+<a name="ln2159">    // Force libtermkey to fallback to its CSI driver (driver-csi.c). #7948</a>
+<a name="ln2160">    return NULL;</a>
+<a name="ln2161">  }</a>
+<a name="ln2162"> </a>
+<a name="ln2163">  return value;</a>
+<a name="ln2164">}</a>
+<a name="ln2165">#endif</a>
+
+</code></pre>
+<div class="balloon" rel="1125"><p><span style="font-size:18px">&uarr;</span> <a href="https://www.viva64.com/en/w/v751/" target="_blank">V751</a> Parameter 'cols' is not used inside function body.</p></div>
+<div class="balloon" rel="1840"><p><span style="font-size:18px">&uarr;</span> <a href="https://www.viva64.com/en/w/v1051/" target="_blank">V1051</a> Consider checking for misprints. It's possible that the 'data->unibi_ext.set_cursor_style' should be checked here.</p></div>
+<div class="balloon" rel="1867"><p><span style="font-size:18px">&uarr;</span> <a href="https://www.viva64.com/en/w/v1051/" target="_blank">V1051</a> Consider checking for misprints. It's possible that the 'data->unibi_ext.set_cursor_style' should be checked here.</p></div>
+<div class="balloon" rel="1885"><p><span style="font-size:18px">&uarr;</span> <a href="https://www.viva64.com/en/w/v1051/" target="_blank">V1051</a> Consider checking for misprints. It's possible that the 'data->unibi_ext.set_cursor_style' should be checked here.</p></div>
+
+<link rel="stylesheet" href="highlight.css">
+<script src="highlight.pack.js"></script>
+<script src="highlightjs-line-numbers.js"></script>
+<script>hljs.initHighlightingOnLoad();</script>
+<script>hljs.initLineNumbersOnLoad();</script>
+<script>
+  $(document).ready(function() {
+      $('.balloon').each(function () {
+          var bl = $(this);
+          var line = bl.attr('rel');
+          var text = $('a[name="ln'+line+'"]').text();
+
+          var space_count = 0;
+          for(var i = 0; i<text.length; i++){
+              var char = text[i];
+              if((char !== ' ')&&(char !== '\t'))break;
+              if(char === '\t')space_count++;
+              space_count++;
+          }
+
+          bl.css('margin-left', space_count*8);
+          $('a[name="ln'+line+'"]').after(bl);
+      });
+
+      window.location = window.location;
+  });
+</script>
+</body>
+</html>

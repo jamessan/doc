@@ -142,7 +142,7 @@ input.spoilerhider:checked + label + .spoiler{
 </style>
 </head>
 <body>
-<!-- BUGDESC Although the value stored to 'oldstartc' is used in the enclosing expression, the value is never actually read from 'oldstartc' -->
+<!-- BUGDESC Although the value stored to 'endc' is used in the enclosing expression, the value is never actually read from 'endc' -->
 
 <!-- BUGTYPE Dead nested assignment -->
 
@@ -154,11 +154,11 @@ input.spoilerhider:checked + label + .spoiler{
 
 <!-- FUNCTIONNAME nfa_regatom -->
 
-<!-- ISSUEHASHCONTENTOFLINEINCONTEXT a20d9d2303b2149e0f44a8800bcf04b0 -->
+<!-- ISSUEHASHCONTENTOFLINEINCONTEXT 7b1b3e4a2071d7000d1af232b8e6b50d -->
 
 <!-- BUGLINE 1567 -->
 
-<!-- BUGCOLUMN 23 -->
+<!-- BUGCOLUMN 16 -->
 
 <!-- BUGPATHLENGTH 1 -->
 
@@ -167,7 +167,7 @@ input.spoilerhider:checked + label + .spoiler{
 <h3>Bug Summary</h3>
 <table class="simpletable">
 <tr><td class="rowname">File:</td><td>/home/runner/work/doc/doc/neovim/build/../src/nvim/regexp_nfa.c</td></tr>
-<tr><td class="rowname">Warning:</td><td><a href="#EndPath">line 1567, column 23</a><br />Although the value stored to 'oldstartc' is used in the enclosing expression, the value is never actually read from 'oldstartc'</td></tr>
+<tr><td class="rowname">Warning:</td><td><a href="#EndPath">line 1567, column 16</a><br />Although the value stored to 'endc' is used in the enclosing expression, the value is never actually read from 'endc'</td></tr>
 
 </table>
 <!-- REPORTSUMMARYEXTRA -->
@@ -176,7 +176,7 @@ input.spoilerhider:checked + label + .spoiler{
    to see keyboard shortcuts</p>
 <input type="checkbox" class="spoilerhider" id="showinvocation" />
 <label for="showinvocation" >Show analyzer invocation</label>
-<div class="spoiler">clang -cc1 -triple x86_64-pc-linux-gnu -analyze -disable-free -disable-llvm-verifier -discard-value-names -main-file-name regexp.c -analyzer-store=region -analyzer-opt-analyze-nested-blocks -analyzer-checker=core -analyzer-checker=apiModeling -analyzer-checker=unix -analyzer-checker=deadcode -analyzer-checker=security.insecureAPI.UncheckedReturn -analyzer-checker=security.insecureAPI.getpw -analyzer-checker=security.insecureAPI.gets -analyzer-checker=security.insecureAPI.mktemp -analyzer-checker=security.insecureAPI.mkstemp -analyzer-checker=security.insecureAPI.vfork -analyzer-checker=nullability.NullPassedToNonnull -analyzer-checker=nullability.NullReturnedFromNonnull -analyzer-output plist -w -setup-static-analyzer -mrelocation-model static -mthread-model posix -mframe-pointer=all -fmath-errno -fno-rounding-math -masm-verbose -mconstructor-aliases -munwind-tables -target-cpu x86-64 -dwarf-column-info -fno-split-dwarf-inlining -debugger-tuning=gdb -resource-dir /usr/lib/llvm-10/lib/clang/10.0.0 -isystem ../.deps/usr/include -D INCLUDE_GENERATED_DECLARATIONS -D MIN_LOG_LEVEL=1 -D NVIM_MSGPACK_HAS_FLOAT32 -D NVIM_UNIBI_HAS_VAR_FROM -D _GNU_SOURCE -D nvim_EXPORTS -I config -I ../src -I src/nvim/auto -I include -I ../.deps/usr/include/luajit-2.1 -internal-isystem /usr/local/include -internal-isystem /usr/lib/llvm-10/lib/clang/10.0.0/include -internal-externc-isystem /usr/include/x86_64-linux-gnu -internal-externc-isystem /include -internal-externc-isystem /usr/include -Wno-unused-parameter -Wno-conversion -std=gnu99 -fdebug-compilation-dir /home/runner/work/doc/doc/neovim/build -ferror-limit 19 -fmessage-length 0 -stack-protector 2 -fgnuc-version=4.2.1 -fobjc-runtime=gcc -fno-common -fdiagnostics-show-option -fcolor-diagnostics -analyzer-output=html -faddrsig -o /home/runner/work/doc/doc/neovim/build/clang-report/2021-01-13-045930-25595-1 -x c ../src/nvim/regexp.c
+<div class="spoiler">clang -cc1 -triple x86_64-pc-linux-gnu -analyze -disable-free -disable-llvm-verifier -discard-value-names -main-file-name regexp.c -analyzer-store=region -analyzer-opt-analyze-nested-blocks -analyzer-checker=core -analyzer-checker=apiModeling -analyzer-checker=unix -analyzer-checker=deadcode -analyzer-checker=security.insecureAPI.UncheckedReturn -analyzer-checker=security.insecureAPI.getpw -analyzer-checker=security.insecureAPI.gets -analyzer-checker=security.insecureAPI.mktemp -analyzer-checker=security.insecureAPI.mkstemp -analyzer-checker=security.insecureAPI.vfork -analyzer-checker=nullability.NullPassedToNonnull -analyzer-checker=nullability.NullReturnedFromNonnull -analyzer-output plist -w -setup-static-analyzer -mrelocation-model static -mthread-model posix -mframe-pointer=all -fmath-errno -fno-rounding-math -masm-verbose -mconstructor-aliases -munwind-tables -target-cpu x86-64 -dwarf-column-info -fno-split-dwarf-inlining -debugger-tuning=gdb -resource-dir /usr/lib/llvm-10/lib/clang/10.0.0 -isystem ../.deps/usr/include -D INCLUDE_GENERATED_DECLARATIONS -D MIN_LOG_LEVEL=1 -D NVIM_MSGPACK_HAS_FLOAT32 -D NVIM_UNIBI_HAS_VAR_FROM -D _GNU_SOURCE -D nvim_EXPORTS -I config -I ../src -I src/nvim/auto -I include -I ../.deps/usr/include/luajit-2.1 -internal-isystem /usr/local/include -internal-isystem /usr/lib/llvm-10/lib/clang/10.0.0/include -internal-externc-isystem /usr/include/x86_64-linux-gnu -internal-externc-isystem /include -internal-externc-isystem /usr/include -Wno-unused-parameter -Wno-conversion -std=gnu99 -fdebug-compilation-dir /home/runner/work/doc/doc/neovim/build -ferror-limit 19 -fmessage-length 0 -stack-protector 2 -fgnuc-version=4.2.1 -fobjc-runtime=gcc -fno-common -fdiagnostics-show-option -fcolor-diagnostics -analyzer-output=html -faddrsig -o /home/runner/work/doc/doc/neovim/build/clang-report/2021-01-16-015824-25528-1 -x c ../src/nvim/regexp.c
 </div>
 <div id='tooltiphint' hidden="true">
   <p>Keyboard shortcuts: </p>
@@ -1909,8 +1909,8 @@ window.addEventListener("keydown", function (event) {
 <tr class="codeline" data-linenumber="1564"><td class="num" id="LN1564">1564</td><td class="line">       <span class='comment'>* Failed to recognize a character class. Use the simple</span></td></tr>
 <tr class="codeline" data-linenumber="1565"><td class="num" id="LN1565">1565</td><td class="line">       <span class='comment'>* version that turns [abc] into 'a' OR 'b' OR 'c'</span></td></tr>
 <tr class="codeline" data-linenumber="1566"><td class="num" id="LN1566">1566</td><td class="line">       <span class='comment'>*/</span></td></tr>
-<tr class="codeline" data-linenumber="1567"><td class="num" id="LN1567">1567</td><td class="line">      startc = endc = oldstartc = <span class="mrange">-1</span>;</td></tr>
-<tr><td class="num"></td><td class="line"><div id="EndPath" class="msg msgEvent" style="margin-left:23ex; max-width:32em">Although the value stored to 'oldstartc' is used in the enclosing expression, the value is never actually read from 'oldstartc'</div></td></tr>
+<tr class="codeline" data-linenumber="1567"><td class="num" id="LN1567">1567</td><td class="line">      startc = endc = <span class="mrange">oldstartc = -1</span>;</td></tr>
+<tr><td class="num"></td><td class="line"><div id="EndPath" class="msg msgEvent" style="margin-left:16ex">Although the value stored to 'endc' is used in the enclosing expression, the value is never actually read from 'endc'</div></td></tr>
 <tr class="codeline" data-linenumber="1568"><td class="num" id="LN1568">1568</td><td class="line">      negated = <span class='macro'>false<span class='macro_popup'>0</span></span>;</td></tr>
 <tr class="codeline" data-linenumber="1569"><td class="num" id="LN1569">1569</td><td class="line">      <span class='keyword'>if</span> (*regparse == '^') {                           <span class='comment'>// negated range</span></td></tr>
 <tr class="codeline" data-linenumber="1570"><td class="num" id="LN1570">1570</td><td class="line">        negated = <span class='macro'>true<span class='macro_popup'>1</span></span>;</td></tr>

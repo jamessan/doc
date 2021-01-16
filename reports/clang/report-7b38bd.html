@@ -142,32 +142,32 @@ input.spoilerhider:checked + label + .spoiler{
 </style>
 </head>
 <body>
-<!-- BUGDESC Value stored to 'past_right' is never read -->
+<!-- BUGDESC Assigned value is garbage or undefined -->
 
-<!-- BUGTYPE Dead assignment -->
+<!-- BUGTYPE Assigned value is garbage or undefined -->
 
-<!-- BUGCATEGORY Dead store -->
+<!-- BUGCATEGORY Logic error -->
 
 <!-- BUGFILE /home/runner/work/doc/doc/neovim/build/../src/nvim/marktree.c -->
 
 <!-- FILENAME marktree.c -->
 
-<!-- FUNCTIONNAME marktree_splice -->
+<!-- FUNCTIONNAME unrelative -->
 
-<!-- ISSUEHASHCONTENTOFLINEINCONTEXT 355cbd08593a9244bf980dce2792b8f1 -->
+<!-- ISSUEHASHCONTENTOFLINEINCONTEXT 3bb3658e219bc185984f129998049435 -->
 
-<!-- BUGLINE 906 -->
+<!-- BUGLINE 91 -->
 
-<!-- BUGCOLUMN 11 -->
+<!-- BUGCOLUMN 14 -->
 
-<!-- BUGPATHLENGTH 1 -->
+<!-- BUGPATHLENGTH 18 -->
 
 <!-- BUGMETAEND -->
 <!-- REPORTHEADER -->
 <h3>Bug Summary</h3>
 <table class="simpletable">
 <tr><td class="rowname">File:</td><td>/home/runner/work/doc/doc/neovim/build/../src/nvim/marktree.c</td></tr>
-<tr><td class="rowname">Warning:</td><td><a href="#EndPath">line 906, column 11</a><br />Value stored to 'past_right' is never read</td></tr>
+<tr><td class="rowname">Warning:</td><td><a href="#EndPath">line 91, column 14</a><br />Assigned value is garbage or undefined</td></tr>
 
 </table>
 <!-- REPORTSUMMARYEXTRA -->
@@ -176,7 +176,7 @@ input.spoilerhider:checked + label + .spoiler{
    to see keyboard shortcuts</p>
 <input type="checkbox" class="spoilerhider" id="showinvocation" />
 <label for="showinvocation" >Show analyzer invocation</label>
-<div class="spoiler">clang -cc1 -triple x86_64-pc-linux-gnu -analyze -disable-free -disable-llvm-verifier -discard-value-names -main-file-name marktree.c -analyzer-store=region -analyzer-opt-analyze-nested-blocks -analyzer-checker=core -analyzer-checker=apiModeling -analyzer-checker=unix -analyzer-checker=deadcode -analyzer-checker=security.insecureAPI.UncheckedReturn -analyzer-checker=security.insecureAPI.getpw -analyzer-checker=security.insecureAPI.gets -analyzer-checker=security.insecureAPI.mktemp -analyzer-checker=security.insecureAPI.mkstemp -analyzer-checker=security.insecureAPI.vfork -analyzer-checker=nullability.NullPassedToNonnull -analyzer-checker=nullability.NullReturnedFromNonnull -analyzer-output plist -w -setup-static-analyzer -mrelocation-model static -mthread-model posix -mframe-pointer=all -fmath-errno -fno-rounding-math -masm-verbose -mconstructor-aliases -munwind-tables -target-cpu x86-64 -dwarf-column-info -fno-split-dwarf-inlining -debugger-tuning=gdb -resource-dir /usr/lib/llvm-10/lib/clang/10.0.0 -isystem ../.deps/usr/include -D INCLUDE_GENERATED_DECLARATIONS -D MIN_LOG_LEVEL=1 -D NVIM_MSGPACK_HAS_FLOAT32 -D NVIM_UNIBI_HAS_VAR_FROM -D _GNU_SOURCE -D nvim_EXPORTS -I config -I ../src -I src/nvim/auto -I include -I ../.deps/usr/include/luajit-2.1 -internal-isystem /usr/local/include -internal-isystem /usr/lib/llvm-10/lib/clang/10.0.0/include -internal-externc-isystem /usr/include/x86_64-linux-gnu -internal-externc-isystem /include -internal-externc-isystem /usr/include -Wno-unused-parameter -std=gnu99 -fdebug-compilation-dir /home/runner/work/doc/doc/neovim/build -ferror-limit 19 -fmessage-length 0 -stack-protector 2 -fgnuc-version=4.2.1 -fobjc-runtime=gcc -fno-common -fdiagnostics-show-option -fcolor-diagnostics -analyzer-output=html -faddrsig -o /home/runner/work/doc/doc/neovim/build/clang-report/2021-01-13-045930-25595-1 -x c ../src/nvim/marktree.c
+<div class="spoiler">clang -cc1 -triple x86_64-pc-linux-gnu -analyze -disable-free -disable-llvm-verifier -discard-value-names -main-file-name marktree.c -analyzer-store=region -analyzer-opt-analyze-nested-blocks -analyzer-checker=core -analyzer-checker=apiModeling -analyzer-checker=unix -analyzer-checker=deadcode -analyzer-checker=security.insecureAPI.UncheckedReturn -analyzer-checker=security.insecureAPI.getpw -analyzer-checker=security.insecureAPI.gets -analyzer-checker=security.insecureAPI.mktemp -analyzer-checker=security.insecureAPI.mkstemp -analyzer-checker=security.insecureAPI.vfork -analyzer-checker=nullability.NullPassedToNonnull -analyzer-checker=nullability.NullReturnedFromNonnull -analyzer-output plist -w -setup-static-analyzer -mrelocation-model static -mthread-model posix -mframe-pointer=all -fmath-errno -fno-rounding-math -masm-verbose -mconstructor-aliases -munwind-tables -target-cpu x86-64 -dwarf-column-info -fno-split-dwarf-inlining -debugger-tuning=gdb -resource-dir /usr/lib/llvm-10/lib/clang/10.0.0 -isystem ../.deps/usr/include -D INCLUDE_GENERATED_DECLARATIONS -D MIN_LOG_LEVEL=1 -D NVIM_MSGPACK_HAS_FLOAT32 -D NVIM_UNIBI_HAS_VAR_FROM -D _GNU_SOURCE -D nvim_EXPORTS -I config -I ../src -I src/nvim/auto -I include -I ../.deps/usr/include/luajit-2.1 -internal-isystem /usr/local/include -internal-isystem /usr/lib/llvm-10/lib/clang/10.0.0/include -internal-externc-isystem /usr/include/x86_64-linux-gnu -internal-externc-isystem /include -internal-externc-isystem /usr/include -Wno-unused-parameter -std=gnu99 -fdebug-compilation-dir /home/runner/work/doc/doc/neovim/build -ferror-limit 19 -fmessage-length 0 -stack-protector 2 -fgnuc-version=4.2.1 -fobjc-runtime=gcc -fno-common -fdiagnostics-show-option -fcolor-diagnostics -analyzer-output=html -faddrsig -o /home/runner/work/doc/doc/neovim/build/clang-report/2021-01-16-015824-25528-1 -x c ../src/nvim/marktree.c
 </div>
 <div id='tooltiphint' hidden="true">
   <p>Keyboard shortcuts: </p>
@@ -188,7 +188,7 @@ input.spoilerhider:checked + label + .spoiler{
   <a href="#" onclick="toggleHelp(); return false;">Close</a>
 </div>
 <script type='text/javascript'>
-var relevant_lines = {"1": {"906": 1}};
+var relevant_lines = {"1": {"69": 1, "70": 1, "71": 1, "85": 1, "86": 1, "87": 1, "88": 1, "89": 1, "91": 1, "110": 1, "111": 1, "112": 1, "113": 1, "116": 1, "117": 1, "122": 1, "125": 1, "126": 1, "127": 1, "128": 1, "131": 1, "132": 1, "140": 1, "141": 1, "144": 1, "597": 1, "598": 1, "599": 1, "600": 1, "601": 1, "604": 1, "608": 1, "609": 1, "610": 1, "611": 1, "612": 1, "614": 1, "615": 1, "617": 1, "618": 1, "635": 1, "637": 1, "638": 1, "693": 1, "694": 1, "695": 1, "698": 1, "699": 1, "700": 1, "701": 1, "704": 1, "705": 1, "706": 1, "712": 1, "713": 1, "714": 1, "717": 1, "718": 1, "719": 1, "720": 1, "721": 1, "743": 1, "808": 1, "809": 1, "810": 1, "811": 1, "812": 1, "836": 1, "837": 1, "838": 1, "839": 1, "840": 1, "841": 1, "842": 1, "843": 1, "845": 1, "846": 1, "847": 1, "848": 1, "849": 1, "850": 1, "852": 1, "854": 1, "855": 1, "859": 1, "860": 1, "862": 1, "863": 1, "864": 1, "865": 1, "871": 1, "875": 1, "876": 1, "881": 1, "967": 1, "968": 1, "996": 1, "997": 1, "998": 1, "999": 1, "1000": 1, "1001": 1, "1002": 1, "1003": 1, "1004": 1, "1005": 1, "1006": 1, "1007": 1, "1008": 1, "1009": 1, "1011": 1, "1018": 1}};
 
 var filterCounterexample = function (hide) {
   var tables = document.getElementsByClassName("code");
@@ -429,11 +429,13 @@ window.addEventListener("keydown", function (event) {
 <tr class="codeline" data-linenumber="84"><td class="num" id="LN84">84</td><td class="line"> </td></tr>
 <tr class="codeline" data-linenumber="85"><td class="num" id="LN85">85</td><td class="line"><span class='keyword'>static</span> <span class='keyword'>void</span> unrelative(mtpos_t base, mtpos_t *val)</td></tr>
 <tr class="codeline" data-linenumber="86"><td class="num" id="LN86">86</td><td class="line">{</td></tr>
-<tr class="codeline" data-linenumber="87"><td class="num" id="LN87">87</td><td class="line">  <span class='keyword'>if</span> (val-&gt;row == 0) {</td></tr>
+<tr class="codeline" data-linenumber="87"><td class="num" id="LN87">87</td><td class="line">  <span class='keyword'>if</span> (val-&gt;<span class='variable'>row<table class='variable_popup'><tbody><tr><td valign='top'><div class='PathIndex PathIndexPopUp'>10.1</div></td><td>Field 'row' is not equal to 0</td></tr></tbody></table></span> == 0) {</td></tr>
+<tr><td class="num"></td><td class="line"><div id="Path11" class="msg msgControl" style="margin-left:3ex"><table class="msgT"><tr><td valign="top"><div class="PathIndex PathIndexControl">11</div></td><td><div class="PathNav"><a href="#Path10" title="Previous event (10)">&#x2190;</a></div></td><td>Taking false branch</td><td><div class="PathNav"><a href="#EndPath" title="Next event (12)">&#x2192;</a></div></td></tr></table></div></td></tr>
 <tr class="codeline" data-linenumber="88"><td class="num" id="LN88">88</td><td class="line">    val-&gt;row = base.row;</td></tr>
 <tr class="codeline" data-linenumber="89"><td class="num" id="LN89">89</td><td class="line">    val-&gt;col += base.col;</td></tr>
 <tr class="codeline" data-linenumber="90"><td class="num" id="LN90">90</td><td class="line">  } <span class='keyword'>else</span> {</td></tr>
-<tr class="codeline" data-linenumber="91"><td class="num" id="LN91">91</td><td class="line">    val-&gt;row += base.row;</td></tr>
+<tr class="codeline" data-linenumber="91"><td class="num" id="LN91">91</td><td class="line">    val-&gt;row += <span class="mrange">base.row</span>;</td></tr>
+<tr><td class="num"></td><td class="line"><div id="EndPath" class="msg msgEvent" style="margin-left:14ex"><table class="msgT"><tr><td valign="top"><div class="PathIndex PathIndexEvent">12</div></td><td><div class="PathNav"><a href="#Path11" title="Previous event (11)">&#x2190;</a></div></td><td>Assigned value is garbage or undefined</td></tr></table></div></td></tr>
 <tr class="codeline" data-linenumber="92"><td class="num" id="LN92">92</td><td class="line">  }</td></tr>
 <tr class="codeline" data-linenumber="93"><td class="num" id="LN93">93</td><td class="line">}</td></tr>
 <tr class="codeline" data-linenumber="94"><td class="num" id="LN94">94</td><td class="line"> </td></tr>
@@ -1187,8 +1189,8 @@ window.addEventListener("keydown", function (event) {
 <tr class="codeline" data-linenumber="842"><td class="num" id="LN842">842</td><td class="line">  mtpos_t old_extent = { (<span class='keyword'>int</span>)old_extent_line, old_extent_col };</td></tr>
 <tr class="codeline" data-linenumber="843"><td class="num" id="LN843">843</td><td class="line">  mtpos_t new_extent = { (<span class='keyword'>int</span>)new_extent_line, new_extent_col };</td></tr>
 <tr class="codeline" data-linenumber="844"><td class="num" id="LN844">844</td><td class="line"> </td></tr>
-<tr class="codeline" data-linenumber="845"><td class="num" id="LN845">845</td><td class="line">  <span class='macro'>bool<span class='macro_popup'>_Bool</span></span> may_delete = (old_extent.row != 0 || old_extent.col != 0);</td></tr>
-<tr class="codeline" data-linenumber="846"><td class="num" id="LN846">846</td><td class="line">  <span class='macro'>bool<span class='macro_popup'>_Bool</span></span> same_line = old_extent.row == 0 &amp;&amp; new_extent.row == 0;</td></tr>
+<tr class="codeline" data-linenumber="845"><td class="num" id="LN845">845</td><td class="line">  <span class='macro'>bool<span class='macro_popup'>_Bool</span></span> may_delete = (old_extent.<span class='variable'>row<table class='variable_popup'><tbody><tr><td valign='top'><div class='PathIndex PathIndexPopUp'>3.1</div></td><td>Field 'row' is not equal to 0</td></tr></tbody></table></span> != 0 || old_extent.col != 0);</td></tr>
+<tr class="codeline" data-linenumber="846"><td class="num" id="LN846">846</td><td class="line">  <span class='macro'>bool<span class='macro_popup'>_Bool</span></span> same_line = old_extent.<span class='variable'>row<table class='variable_popup'><tbody><tr><td valign='top'><div class='PathIndex PathIndexPopUp'>3.2</div></td><td>Field 'row' is not equal to 0</td></tr></tbody></table></span> == 0 &amp;&amp; new_extent.row == 0;</td></tr>
 <tr class="codeline" data-linenumber="847"><td class="num" id="LN847">847</td><td class="line">  unrelative(start, &amp;old_extent);</td></tr>
 <tr class="codeline" data-linenumber="848"><td class="num" id="LN848">848</td><td class="line">  unrelative(start, &amp;new_extent);</td></tr>
 <tr class="codeline" data-linenumber="849"><td class="num" id="LN849">849</td><td class="line">  MarkTreeIter itr[1] = { 0 };</td></tr>
@@ -1197,17 +1199,20 @@ window.addEventListener("keydown", function (event) {
 <tr class="codeline" data-linenumber="852"><td class="num" id="LN852">852</td><td class="line">  mtpos_t oldbase[<span class='macro'>MT_MAX_DEPTH<span class='macro_popup'>20</span></span>];</td></tr>
 <tr class="codeline" data-linenumber="853"><td class="num" id="LN853">853</td><td class="line"> </td></tr>
 <tr class="codeline" data-linenumber="854"><td class="num" id="LN854">854</td><td class="line">  marktree_itr_get_ext(b, start, itr, <span class='macro'>false<span class='macro_popup'>0</span></span>, <span class='macro'>true<span class='macro_popup'>1</span></span>, oldbase);</td></tr>
-<tr class="codeline" data-linenumber="855"><td class="num" id="LN855">855</td><td class="line">  <span class='keyword'>if</span> (!itr-&gt;node) {</td></tr>
+<tr class="codeline" data-linenumber="855"><td class="num" id="LN855">855</td><td class="line">  <span class='keyword'>if</span> (!itr-&gt;<span class='variable'>node<table class='variable_popup'><tbody><tr><td valign='top'><div class='PathIndex PathIndexPopUp'>3.3</div></td><td>Field 'node' is non-null</td></tr></tbody></table></span>) {</td></tr>
+<tr><td class="num"></td><td class="line"><div id="Path4" class="msg msgControl" style="margin-left:3ex"><table class="msgT"><tr><td valign="top"><div class="PathIndex PathIndexControl">4</div></td><td><div class="PathNav"><a href="#Path3" title="Previous event (3)">&#x2190;</a></div></td><td>Taking false branch</td><td><div class="PathNav"><a href="#Path5" title="Next event (5)">&#x2192;</a></div></td></tr></table></div></td></tr>
 <tr class="codeline" data-linenumber="856"><td class="num" id="LN856">856</td><td class="line">    <span class='comment'>// den e FÄRDIG</span></td></tr>
 <tr class="codeline" data-linenumber="857"><td class="num" id="LN857">857</td><td class="line">    <span class='keyword'>return</span> <span class='macro'>false<span class='macro_popup'>0</span></span>;</td></tr>
 <tr class="codeline" data-linenumber="858"><td class="num" id="LN858">858</td><td class="line">  }</td></tr>
 <tr class="codeline" data-linenumber="859"><td class="num" id="LN859">859</td><td class="line">  mtpos_t delta = { new_extent.row - old_extent.row,</td></tr>
 <tr class="codeline" data-linenumber="860"><td class="num" id="LN860">860</td><td class="line">                    new_extent.col-old_extent.col };</td></tr>
 <tr class="codeline" data-linenumber="861"><td class="num" id="LN861">861</td><td class="line"> </td></tr>
-<tr class="codeline" data-linenumber="862"><td class="num" id="LN862">862</td><td class="line">  <span class='keyword'>if</span> (may_delete) {</td></tr>
+<tr class="codeline" data-linenumber="862"><td class="num" id="LN862">862</td><td class="line">  <span class='keyword'>if</span> (<span class='variable'>may_delete<table class='variable_popup'><tbody><tr><td valign='top'><div class='PathIndex PathIndexPopUp'>4.1</div></td><td>'may_delete' is true</td></tr></tbody></table></span>) {</td></tr>
+<tr><td class="num"></td><td class="line"><div id="Path5" class="msg msgControl" style="margin-left:3ex"><table class="msgT"><tr><td valign="top"><div class="PathIndex PathIndexControl">5</div></td><td><div class="PathNav"><a href="#Path4" title="Previous event (4)">&#x2190;</a></div></td><td>Taking true branch</td><td><div class="PathNav"><a href="#Path6" title="Next event (6)">&#x2192;</a></div></td></tr></table></div></td></tr>
 <tr class="codeline" data-linenumber="863"><td class="num" id="LN863">863</td><td class="line">    mtpos_t ipos = marktree_itr_pos(itr);</td></tr>
 <tr class="codeline" data-linenumber="864"><td class="num" id="LN864">864</td><td class="line">    <span class='keyword'>if</span> (!pos_leq(old_extent, ipos)</td></tr>
-<tr class="codeline" data-linenumber="865"><td class="num" id="LN865">865</td><td class="line">        || (old_extent.row == ipos.row &amp;&amp; old_extent.col == ipos.col</td></tr>
+<tr class="codeline" data-linenumber="865"><td class="num" id="LN865">865</td><td class="line">        || (<span class="mrange">old_extent.row == ipos.row</span> &amp;&amp; old_extent.col == ipos.col</td></tr>
+<tr><td class="num"></td><td class="line"><div id="Path6" class="msg msgEvent" style="margin-left:13ex"><table class="msgT"><tr><td valign="top"><div class="PathIndex PathIndexEvent">6</div></td><td><div class="PathNav"><a href="#Path5" title="Previous event (5)">&#x2190;</a></div></td><td>Assuming 'old_extent.row' is not equal to 'ipos.row'</td><td><div class="PathNav"><a href="#Path7" title="Next event (7)">&#x2192;</a></div></td></tr></table></div></td></tr>
 <tr class="codeline" data-linenumber="866"><td class="num" id="LN866">866</td><td class="line">            &amp;&amp; !<span class='macro'>IS_RIGHT(rawkey(itr).id)<span class='macro_popup'>(((itr-&gt;node-&gt;key[itr-&gt;i]).id)&amp;(((uint64_t)1) &lt;&lt;<br> 63))</span></span>)) {</td></tr>
 <tr class="codeline" data-linenumber="867"><td class="num" id="LN867">867</td><td class="line">      marktree_itr_get_ext(b, old_extent, enditr, <span class='macro'>true<span class='macro_popup'>1</span></span>, <span class='macro'>true<span class='macro_popup'>1</span></span>, <span class='macro'>NULL<span class='macro_popup'>((void*)0)</span></span>);</td></tr>
 <tr class="codeline" data-linenumber="868"><td class="num" id="LN868">868</td><td class="line">      <span class='macro'>assert(enditr-&gt;node)<span class='macro_popup'>((void) sizeof ((enditr-&gt;node) ? 1 : 0), __extension__ ({ if<br> (enditr-&gt;node) ; else __assert_fail ("enditr-&gt;node", "../src/nvim/marktree.c"<br>, 868, __extension__ __PRETTY_FUNCTION__); }))</span></span>;</td></tr>
@@ -1223,7 +1228,8 @@ window.addEventListener("keydown", function (event) {
 <tr class="codeline" data-linenumber="878"><td class="num" id="LN878">878</td><td class="line">  <span class='comment'>// Follow the general strategy of messing things up and fix them later</span></td></tr>
 <tr class="codeline" data-linenumber="879"><td class="num" id="LN879">879</td><td class="line">  <span class='comment'>// "oldbase" carries the information needed to calculate old position of</span></td></tr>
 <tr class="codeline" data-linenumber="880"><td class="num" id="LN880">880</td><td class="line">  <span class='comment'>// children.</span></td></tr>
-<tr class="codeline" data-linenumber="881"><td class="num" id="LN881">881</td><td class="line">  <span class='keyword'>if</span> (may_delete) {</td></tr>
+<tr class="codeline" data-linenumber="881"><td class="num" id="LN881">881</td><td class="line">  <span class='keyword'>if</span> (<span class='variable'>may_delete<table class='variable_popup'><tbody><tr><td valign='top'><div class='PathIndex PathIndexPopUp'>6.1</div></td><td>'may_delete' is false</td></tr></tbody></table></span>) {</td></tr>
+<tr><td class="num"></td><td class="line"><div id="Path7" class="msg msgControl" style="margin-left:3ex"><table class="msgT"><tr><td valign="top"><div class="PathIndex PathIndexControl">7</div></td><td><div class="PathNav"><a href="#Path6" title="Previous event (6)">&#x2190;</a></div></td><td>Taking false branch</td><td><div class="PathNav"><a href="#Path8" title="Next event (8)">&#x2192;</a></div></td></tr></table></div></td></tr>
 <tr class="codeline" data-linenumber="882"><td class="num" id="LN882">882</td><td class="line">    <span class='keyword'>while</span> (itr-&gt;node &amp;&amp; !past_right) {</td></tr>
 <tr class="codeline" data-linenumber="883"><td class="num" id="LN883">883</td><td class="line">      mtpos_t loc_start = start;</td></tr>
 <tr class="codeline" data-linenumber="884"><td class="num" id="LN884">884</td><td class="line">      mtpos_t loc_old = old_extent;</td></tr>
@@ -1248,8 +1254,7 @@ window.addEventListener("keydown", function (event) {
 <tr class="codeline" data-linenumber="903"><td class="num" id="LN903">903</td><td class="line">          refkey(b, itr-&gt;node, itr-&gt;i);</td></tr>
 <tr class="codeline" data-linenumber="904"><td class="num" id="LN904">904</td><td class="line">          refkey(b, enditr-&gt;node, enditr-&gt;i);</td></tr>
 <tr class="codeline" data-linenumber="905"><td class="num" id="LN905">905</td><td class="line">        } <span class='keyword'>else</span> {</td></tr>
-<tr class="codeline" data-linenumber="906"><td class="num" id="LN906">906</td><td class="line">          past_right = <span class="mrange"><span class='macro'>true<span class='macro_popup'>1</span></span></span>; <span class='comment'>// NOLINT</span></td></tr>
-<tr><td class="num"></td><td class="line"><div id="EndPath" class="msg msgEvent" style="margin-left:11ex">Value stored to 'past_right' is never read</div></td></tr>
+<tr class="codeline" data-linenumber="906"><td class="num" id="LN906">906</td><td class="line">          past_right = <span class='macro'>true<span class='macro_popup'>1</span></span>; <span class='comment'>// NOLINT</span></td></tr>
 <tr class="codeline" data-linenumber="907"><td class="num" id="LN907">907</td><td class="line">          <span class='keyword'>break</span>;</td></tr>
 <tr class="codeline" data-linenumber="908"><td class="num" id="LN908">908</td><td class="line">        }</td></tr>
 <tr class="codeline" data-linenumber="909"><td class="num" id="LN909">909</td><td class="line">      }</td></tr>
@@ -1311,7 +1316,10 @@ window.addEventListener("keydown", function (event) {
 <tr class="codeline" data-linenumber="965"><td class="num" id="LN965">965</td><td class="line"> </td></tr>
 <tr class="codeline" data-linenumber="966"><td class="num" id="LN966">966</td><td class="line"> </td></tr>
 <tr class="codeline" data-linenumber="967"><td class="num" id="LN967">967</td><td class="line">  <span class='keyword'>while</span> (itr-&gt;node) {</td></tr>
-<tr class="codeline" data-linenumber="968"><td class="num" id="LN968">968</td><td class="line">    unrelative(oldbase[itr-&gt;lvl], &amp;<span class='macro'>rawkey(itr)<span class='macro_popup'>(itr-&gt;node-&gt;key[itr-&gt;i])</span></span>.pos);</td></tr>
+<tr><td class="num"></td><td class="line"><div id="Path8" class="msg msgControl" style="margin-left:3ex"><table class="msgT"><tr><td valign="top"><div class="PathIndex PathIndexControl">8</div></td><td><div class="PathNav"><a href="#Path7" title="Previous event (7)">&#x2190;</a></div></td><td>Loop condition is true.  Entering loop body</td><td><div class="PathNav"><a href="#Path9" title="Next event (9)">&#x2192;</a></div></td></tr></table></div></td></tr>
+<tr class="codeline" data-linenumber="968"><td class="num" id="LN968">968</td><td class="line">    <span class="mrange"><span class="mrange">unrelative(oldbase[itr-&gt;lvl], &amp;<span class='macro'>rawkey(itr)<span class='macro_popup'>(itr-&gt;node-&gt;key[itr-&gt;i])</span></span>.pos)</span></span>;</td></tr>
+<tr><td class="num"></td><td class="line"><div id="Path9" class="msg msgEvent" style="margin-left:5ex"><table class="msgT"><tr><td valign="top"><div class="PathIndex PathIndexEvent">9</div></td><td><div class="PathNav"><a href="#Path8" title="Previous event (8)">&#x2190;</a></div></td><td>Uninitialized value stored to 'base.row'</td><td><div class="PathNav"><a href="#Path10" title="Next event (10)">&#x2192;</a></div></td></tr></table></div></td></tr>
+<tr><td class="num"></td><td class="line"><div id="Path10" class="msg msgEvent" style="margin-left:5ex"><table class="msgT"><tr><td valign="top"><div class="PathIndex PathIndexEvent">10</div></td><td><div class="PathNav"><a href="#Path9" title="Previous event (9)">&#x2190;</a></div></td><td>Calling 'unrelative'</td><td><div class="PathNav"><a href="#Path11" title="Next event (11)">&#x2192;</a></div></td></tr></table></div></td></tr>
 <tr class="codeline" data-linenumber="969"><td class="num" id="LN969">969</td><td class="line">    <span class='keyword'>int</span> realrow = <span class='macro'>rawkey(itr)<span class='macro_popup'>(itr-&gt;node-&gt;key[itr-&gt;i])</span></span>.pos.row;</td></tr>
 <tr class="codeline" data-linenumber="970"><td class="num" id="LN970">970</td><td class="line">    <span class='macro'>assert(realrow &gt;= old_extent.row)<span class='macro_popup'>((void) sizeof ((realrow &gt;= old_extent.row) ? 1 : 0), __extension__<br> ({ if (realrow &gt;= old_extent.row) ; else __assert_fail ("realrow &gt;= old_extent.row"<br>, "../src/nvim/marktree.c", 970, __extension__ __PRETTY_FUNCTION__<br>); }))</span></span>;</td></tr>
 <tr class="codeline" data-linenumber="971"><td class="num" id="LN971">971</td><td class="line">    <span class='macro'>bool<span class='macro_popup'>_Bool</span></span> done = <span class='macro'>false<span class='macro_popup'>0</span></span>;</td></tr>
@@ -1351,17 +1359,20 @@ window.addEventListener("keydown", function (event) {
 <tr class="codeline" data-linenumber="1005"><td class="num" id="LN1005">1005</td><td class="line">  marktree_itr_get_ext(b, start, itr, <span class='macro'>false<span class='macro_popup'>0</span></span>, <span class='macro'>true<span class='macro_popup'>1</span></span>, <span class='macro'>NULL<span class='macro_popup'>((void*)0)</span></span>);</td></tr>
 <tr class="codeline" data-linenumber="1006"><td class="num" id="LN1006">1006</td><td class="line">  <span class='macro'>kvec_t(mtkey_t)<span class='macro_popup'>struct { size_t size; size_t capacity; mtkey_t *items; }</span></span> saved = <span class='macro'>KV_INITIAL_VALUE<span class='macro_popup'>{ .size = 0, .capacity = 0, .items = ((void*)0) }</span></span>;</td></tr>
 <tr class="codeline" data-linenumber="1007"><td class="num" id="LN1007">1007</td><td class="line">  <span class='keyword'>while</span> (itr-&gt;node) {</td></tr>
+<tr><td class="num"></td><td class="line"><div id="Path1" class="msg msgControl" style="margin-left:3ex"><table class="msgT"><tr><td valign="top"><div class="PathIndex PathIndexControl">1</div></td><td>Loop condition is true.  Entering loop body</td><td><div class="PathNav"><a href="#Path2" title="Next event (2)">&#x2192;</a></div></td></tr></table></div></td></tr>
 <tr class="codeline" data-linenumber="1008"><td class="num" id="LN1008">1008</td><td class="line">    mtpos_t pos = marktree_itr_pos(itr);</td></tr>
 <tr class="codeline" data-linenumber="1009"><td class="num" id="LN1009">1009</td><td class="line">    <span class='keyword'>if</span> (!pos_leq(pos, end) || (pos.row == end.row &amp;&amp; pos.col == end.col</td></tr>
 <tr class="codeline" data-linenumber="1010"><td class="num" id="LN1010">1010</td><td class="line">                               &amp;&amp; <span class='macro'>rawkey(itr)<span class='macro_popup'>(itr-&gt;node-&gt;key[itr-&gt;i])</span></span>.id &amp; <span class='macro'>RIGHT_GRAVITY<span class='macro_popup'>(((uint64_t)1) &lt;&lt; 63)</span></span>)) {</td></tr>
 <tr class="codeline" data-linenumber="1011"><td class="num" id="LN1011">1011</td><td class="line">      <span class='keyword'>break</span>;</td></tr>
+<tr><td class="num"></td><td class="line"><div id="Path2" class="msg msgControl" style="margin-left:7ex"><table class="msgT"><tr><td valign="top"><div class="PathIndex PathIndexControl">2</div></td><td><div class="PathNav"><a href="#Path1" title="Previous event (1)">&#x2190;</a></div></td><td> Execution continues on line 1018</td><td><div class="PathNav"><a href="#Path3" title="Next event (3)">&#x2192;</a></div></td></tr></table></div></td></tr>
 <tr class="codeline" data-linenumber="1012"><td class="num" id="LN1012">1012</td><td class="line">    }</td></tr>
 <tr class="codeline" data-linenumber="1013"><td class="num" id="LN1013">1013</td><td class="line">    relative(start, &amp;pos);</td></tr>
 <tr class="codeline" data-linenumber="1014"><td class="num" id="LN1014">1014</td><td class="line">    <span class='macro'>kv_push(saved, ((mtkey_t){ .pos = pos, .id = rawkey(itr).id }))<span class='macro_popup'>(*((((saved).size == (saved).capacity) ? (((saved).capacity =<br> ((saved).capacity ? (saved).capacity &lt;&lt; 1 : 8), (saved<br>).items = xrealloc((saved).items, sizeof((saved).items[0]) * (<br>saved).capacity)), 0) : 0), ((saved).items + ((saved).size++)<br>)) = (((mtkey_t){ .pos = pos, .id = (itr-&gt;node-&gt;key[itr<br>-&gt;i]).id })))</span></span>;</td></tr>
 <tr class="codeline" data-linenumber="1015"><td class="num" id="LN1015">1015</td><td class="line">    marktree_del_itr(b, itr, <span class='macro'>false<span class='macro_popup'>0</span></span>);</td></tr>
 <tr class="codeline" data-linenumber="1016"><td class="num" id="LN1016">1016</td><td class="line">  }</td></tr>
 <tr class="codeline" data-linenumber="1017"><td class="num" id="LN1017">1017</td><td class="line"> </td></tr>
-<tr class="codeline" data-linenumber="1018"><td class="num" id="LN1018">1018</td><td class="line">  marktree_splice(b, start.row, start.col, size.row, size.col, 0, 0);</td></tr>
+<tr class="codeline" data-linenumber="1018"><td class="num" id="LN1018">1018</td><td class="line">  <span class="mrange">marktree_splice(b, start.row, start.col, size.row, size.col, 0, 0)</span>;</td></tr>
+<tr><td class="num"></td><td class="line"><div id="Path3" class="msg msgEvent" style="margin-left:3ex"><table class="msgT"><tr><td valign="top"><div class="PathIndex PathIndexEvent">3</div></td><td><div class="PathNav"><a href="#Path2" title="Previous event (2)">&#x2190;</a></div></td><td>Calling 'marktree_splice'</td><td><div class="PathNav"><a href="#Path4" title="Next event (4)">&#x2192;</a></div></td></tr></table></div></td></tr>
 <tr class="codeline" data-linenumber="1019"><td class="num" id="LN1019">1019</td><td class="line">  mtpos_t new = { new_row, new_col };</td></tr>
 <tr class="codeline" data-linenumber="1020"><td class="num" id="LN1020">1020</td><td class="line">  marktree_splice(b, new.row, new.col,</td></tr>
 <tr class="codeline" data-linenumber="1021"><td class="num" id="LN1021">1021</td><td class="line">                  0, 0, size.row, size.col);</td></tr>
